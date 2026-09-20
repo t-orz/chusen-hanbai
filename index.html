@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>抽選販売 整理番号</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <h1 id="ev-name">読み込み中…</h1>
+  <div class="sub" id="ev-desc"></div>
+
+  <!-- ===== イベント概要 ===== -->
+  <div class="card hide" id="ev-card">
+    <div class="stats" id="ev-stats"></div>
+    <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+    <table>
+      <tbody>
+        <tr><th>応募受付</th><td id="ev-entry"></td></tr>
+        <tr><th>第1回抽選</th><td id="ev-draw"></td></tr>
+        <tr><th>使用期限</th><td id="ev-claim"></td></tr>
+        <tr><th>再抽選</th><td id="ev-rounds"></td></tr>
+      </tbody>
+    </table>
+    <div class="msg warn" id="ev-phase"></div>
+  </div>
+
+  <!-- ===== 整理番号の発行 ===== -->
+  <div class="card hide" id="entry-card">
+    <h2>整理番号を受け取る</h2>
+    <p class="sub" style="margin:0 0 8px">
+      メールアドレス1つにつき整理番号は1つです。同じアドレスで送り直しても番号は変わりません。
+    </p>
+    <form id="entry-form">
+      <label for="entry-email">メールアドレス</label>
+      <div class="row">
+        <input type="email" id="entry-email" required autocomplete="email" placeholder="you@example.com">
+        <button type="submit" id="entry-btn">整理番号を発行</button>
+      </div>
+    </form>
+    <div class="msg" id="entry-msg"></div>
+    <div class="ticket hide" id="entry-ticket">
+      <div class="cap">あなたの整理番号</div>
+      <div class="no" id="entry-no"></div>
+      <div class="cap" id="entry-note"></div>
+    </div>
+  </div>
+
+  <!-- ===== 当落照会 ===== -->
+  <div class="card" id="lookup-card">
+    <h2>当落を確認する</h2>
+    <form id="lookup-form">
+      <div class="grid2">
+        <div>
+          <label for="lk-no">整理番号</label>
+          <input type="text" id="lk-no" required placeholder="A-0001" autocomplete="off">
+        </div>
+        <div>
+          <label for="lk-email">メールアドレス</label>
+          <input type="email" id="lk-email" required autocomplete="email" placeholder="you@example.com">
+        </div>
+      </div>
+      <div style="margin-top:12px"><button type="submit" id="lk-btn">照会する</button></div>
+    </form>
+    <div class="msg" id="lk-msg"></div>
+    <div class="hide" id="lk-result">
+      <div class="ticket">
+        <div class="cap">整理番号</div>
+        <div class="no" id="lk-no-out"></div>
+        <div style="margin-top:10px"><span class="badge" id="lk-badge"></span></div>
+        <div class="cap" id="lk-detail" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 抽選履歴 ===== -->
+  <div class="card hide" id="draws-card">
+    <h2>抽選の記録</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>回</th><th>実行時刻</th><th>母数</th><th>当選</th><th>使用期限</th></tr></thead>
+        <tbody id="draws-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var CFG  = window.APP_CONFIG;
+  var SLUG = new URLSearchParams(location.search).get('e') || CFG.DEFAULT_EVENT_SLUG;
+  var sb   = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  var STATUS_JA = {
+    entered:  '抽選待ち',
+    won:      '当選',
+    redeemed: '利用済み',
+    expired:  '落選（期限切れ）',
+    void:     '無効'
+  };
+
+  var ERROR_JA = {
+    event_not_found:  'イベントが見つかりません。URL をご確認ください。',
+    event_not_open:   'このイベントは現在受付を行っていません。',
+    entry_not_started:'応募の受付はまだ始まっていません。',
+    entry_closed:     '応募の受付は終了しました。',
+    invalid_email:    'メールアドレスの形式が正しくありません。',
+    not_found:        '該当する整理番号が見つかりません。番号とメールアドレスをご確認ください。'
+  };
+
+  // --- 表示ヘルパ -----------------------------------------------------
+  function fmt(ts) {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleString('ja-JP', {
+      timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  function dur(minutes) {
+    if (minutes % 1440 === 0) return (minutes / 1440) + '日間';
+    if (minutes % 60 === 0)   return (minutes / 60) + '時間';
+    return minutes + '分間';
+  }
+
+  function say(el, text, kind) {
+    el.textContent = text || '';
+    el.className = 'msg' + (text ? ' ' + (kind || 'warn') : '');
+  }
+
+  function errText(res) {
+    if (!res) return '通信に失敗しました。時間をおいてお試しください。';
+    return ERROR_JA[res.error] || ('エラー: ' + res.error);
+  }
+
+  // --- RPC ラッパ -----------------------------------------------------
+  function rpc(name, args) {
+    return sb.rpc(name, args).then(function (r) {
+      if (r.error) { console.error(name, r.error); return null; }
+      return r.data;
+    });
+  }
+
+  // --- イベント情報 ---------------------------------------------------
+  var EV = null;
+
+  function loadEvent() {
+    return rpc('event_public', { p_slug: SLUG }).then(function (d) {
+      if (!d || !d.ok) {
+        $('ev-name').textContent = 'イベントが見つかりません';
+        $('ev-desc').textContent = '指定されたイベント (' + SLUG + ') は公開されていません。';
+        return;
+      }
+      EV = d;
+      $('ev-name').textContent = d.name;
+      $('ev-desc').textContent = d.description || '';
+      $('ev-card').classList.remove('hide');
+
+      $('ev-stats').innerHTML =
+        '<div><b>' + d.winners_count + '</b>当選枠</div>' +
+        '<div><b>' + d.entry_count + '</b>応募数</div>' +
+        '<div><b>' + d.redeemed_count + '</b>利用済み</div>' +
+        '<div><b>' + d.active_winner_count + '</b>当選中</div>';
+
+      $('ev-entry').textContent  = fmt(d.entry_open_at) + ' 〜 ' + fmt(d.entry_close_at);
+      $('ev-draw').textContent   = fmt(d.first_draw_at);
+      $('ev-claim').textContent  = '当選から ' + dur(d.claim_window_minutes) + '以内';
+      $('ev-rounds').textContent = '最大 ' + d.max_rounds + ' 回（実施済み ' + d.rounds_done + ' 回）'
+        + ' / 期限までに利用されなかった枠は次点の方へ再抽選します';
+
+      showPhase(d);
+    });
+  }
+
+  function showPhase(d) {
+    var now = new Date(d.now).getTime();
+    var open = new Date(d.entry_open_at).getTime();
+    var close = new Date(d.entry_close_at).getTime();
+    var canEnter = d.status === 'open' && now >= open && now <= close;
+
+    if (canEnter) {
+      $('entry-card').classList.remove('hide');
+      say($('ev-phase'), '', null);
+      return;
+    }
+    if (d.status === 'finished') {
+      say($('ev-phase'), 'このイベントの抽選はすべて終了しました。', 'warn');
+    } else if (d.status === 'cancelled') {
+      say($('ev-phase'), 'このイベントは中止されました。', 'bad');
+    } else if (now < open) {
+      say($('ev-phase'), '応募受付の開始は ' + fmt(d.entry_open_at) + ' です。', 'warn');
+    } else {
+      say($('ev-phase'), '応募受付は終了しました。当落は下の照会からご確認ください。', 'warn');
+    }
+  }
+
+  // --- 抽選履歴 -------------------------------------------------------
+  function loadDraws() {
+    sb.from('events').select('id').eq('slug', SLUG).maybeSingle().then(function (r) {
+      if (r.error || !r.data) return;
+      return sb.from('draws').select('*').eq('event_id', r.data.id)
+               .order('round_no', { ascending: true });
+    }).then(function (r) {
+      if (!r || r.error || !r.data || !r.data.length) return;
+      $('draws-card').classList.remove('hide');
+      $('draws-body').innerHTML = r.data.map(function (d) {
+        return '<tr><td class="no">第' + d.round_no + '回</td>' +
+               '<td>' + fmt(d.executed_at) + '</td>' +
+               '<td class="no">' + d.candidates + '</td>' +
+               '<td class="no">' + d.picked + ' / ' + d.slots + '</td>' +
+               '<td>' + fmt(d.expires_at) + '</td></tr>';
+      }).join('');
+    });
+  }
+
+  // --- 整理番号の発行 -------------------------------------------------
+  $('entry-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var email = $('entry-email').value.trim();
+    var btn = $('entry-btn');
+    btn.disabled = true;
+    say($('entry-msg'), '', null);
+
+    rpc('issue_ticket', { p_slug: SLUG, p_email: email }).then(function (d) {
+      btn.disabled = false;
+      if (!d || !d.ok) { say($('entry-msg'), errText(d), 'bad'); return; }
+
+      $('entry-ticket').classList.remove('hide');
+      $('entry-no').textContent = d.ticket_no;
+      $('entry-note').textContent = d.already
+        ? 'このメールアドレスでは既に発行済みです。'
+        : '発行しました。番号は控えておいてください。';
+      say($('entry-msg'),
+          '抽選結果は下の「当落を確認する」から、この番号とメールアドレスでご確認ください。', 'ok');
+
+      try { localStorage.setItem('chusen:' + SLUG, JSON.stringify({ no: d.ticket_no, email: email })); }
+      catch (err) { /* プライベートモード等では保存できない。動作には支障なし */ }
+
+      $('lk-no').value = d.ticket_no;
+      $('lk-email').value = email;
+      loadEvent();
+    });
+  });
+
+  // --- 当落照会 -------------------------------------------------------
+  $('lookup-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var btn = $('lk-btn');
+    btn.disabled = true;
+    say($('lk-msg'), '', null);
+
+    rpc('lookup_ticket', {
+      p_slug: SLUG,
+      p_ticket_no: $('lk-no').value.trim(),
+      p_email: $('lk-email').value.trim()
+    }).then(function (d) {
+      btn.disabled = false;
+      if (!d || !d.ok) {
+        $('lk-result').classList.add('hide');
+        say($('lk-msg'), errText(d), 'bad');
+        return;
+      }
+      renderLookup(d);
+    });
+  });
+
+  function renderLookup(d) {
+    $('lk-result').classList.remove('hide');
+    $('lk-no-out').textContent = d.ticket_no;
+    $('lk-badge').textContent = STATUS_JA[d.status] || d.status;
+    $('lk-badge').className = 'badge ' + d.status;
+
+    var detail = '', kind = 'warn', note = '';
+
+    if (d.status === 'entered') {
+      if (d.rounds_done === 0) {
+        detail = '第1回抽選は ' + fmt(d.first_draw_at) + ' に行われます。';
+      } else if (d.event_status === 'finished') {
+        detail = '抽選はすべて終了しました。今回はご縁がありませんでした。';
+      } else {
+        detail = '第' + d.rounds_done + '回まで終了。次点の抽選対象として残っています。';
+      }
+      note = detail;
+    } else if (d.status === 'won') {
+      detail = '第' + d.round_won + '回抽選で当選しました。';
+      note = fmt(d.expires_at) + ' までにご利用ください。期限を過ぎると失効し、次点の方へ回ります。';
+      kind = 'ok';
+    } else if (d.status === 'redeemed') {
+      detail = 'お手続きは完了しています（' + fmt(d.redeemed_at) + '）。';
+      note = detail;
+      kind = 'ok';
+    } else if (d.status === 'expired') {
+      detail = '第' + d.round_won + '回で当選しましたが、' + fmt(d.expires_at) + ' の期限までにご利用がなかったため失効しました。';
+      note = detail;
+      kind = 'bad';
+    } else if (d.status === 'void') {
+      note = 'この整理番号は無効化されています。';
+      kind = 'bad';
+    }
+
+    $('lk-detail').textContent = detail;
+    say($('lk-msg'), note, kind);
+  }
+
+  // --- 起動 -----------------------------------------------------------
+  try {
+    var saved = JSON.parse(localStorage.getItem('chusen:' + SLUG) || 'null');
+    if (saved) { $('lk-no').value = saved.no; $('lk-email').value = saved.email; }
+  } catch (err) { /* 読めなくても構わない */ }
+
+  loadEvent();
+  loadDraws();
+
+  // 開催中は1分ごとに概要を更新して、抽選の進行が画面に出るようにする
+  setInterval(function () {
+    if (EV && (EV.status === 'open')) { loadEvent(); loadDraws(); }
+  }, 60000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>抽選管理</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap wide">
+
+  <h1>抽選管理</h1>
+  <div class="nav">
+    <a href="index.html">利用者向けページ</a>
+    <a href="#" id="signout">ログアウト</a>
+    <span class="sub" id="whoami" style="margin:0"></span>
+  </div>
+
+  <div class="sub" id="gate">認証を確認しています…</div>
+
+  <div id="app" class="hide">
+
+    <!-- ===== イベント選択 ===== -->
+    <div class="card">
+      <div class="row">
+        <div>
+          <label for="ev-sel">イベント</label>
+          <select id="ev-sel"></select>
+        </div>
+        <button class="ghost" id="ev-new">新規作成</button>
+        <button class="ghost" id="ev-reload">再読込</button>
+      </div>
+      <div class="stats" id="ev-stats" style="margin-top:16px"></div>
+    </div>
+
+    <!-- ===== イベント設定 ===== -->
+    <div class="card hide" id="ev-form-card">
+      <h2 id="ev-form-title">イベント設定</h2>
+      <form id="ev-form">
+        <div class="grid2">
+          <div><label for="f-slug">slug（URL の ?e= に入る文字）</label>
+               <input type="text" id="f-slug" required pattern="[a-z0-9\-]+" placeholder="autumn-2026"></div>
+          <div><label for="f-name">イベント名</label>
+               <input type="text" id="f-name" required></div>
+        </div>
+        <label for="f-desc">説明</label>
+        <textarea id="f-desc" rows="2"></textarea>
+        <div class="grid2">
+          <div><label for="f-open">応募開始</label>
+               <input type="datetime-local" id="f-open" required></div>
+          <div><label for="f-close">応募締切</label>
+               <input type="datetime-local" id="f-close" required></div>
+          <div><label for="f-draw">第1回抽選</label>
+               <input type="datetime-local" id="f-draw" required></div>
+          <div><label for="f-prefix">整理番号の接頭辞</label>
+               <input type="text" id="f-prefix" placeholder="A-"></div>
+          <div><label for="f-winners">当選枠</label>
+               <input type="number" id="f-winners" min="1" required></div>
+          <div><label for="f-claim">使用期限（分）</label>
+               <input type="number" id="f-claim" min="1" required></div>
+          <div><label for="f-rounds">抽選の最大回数（第1回を含む）</label>
+               <input type="number" id="f-rounds" min="1" required></div>
+          <div><label for="f-status">状態</label>
+               <select id="f-status">
+                 <option value="draft">draft（下書き・非公開）</option>
+                 <option value="open">open（公開・稼働中）</option>
+                 <option value="finished">finished（終了）</option>
+                 <option value="cancelled">cancelled（中止）</option>
+               </select></div>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button type="submit" id="f-save">保存</button>
+          <button type="button" class="ghost" id="f-cancel">閉じる</button>
+        </div>
+      </form>
+      <div class="msg" id="f-msg"></div>
+    </div>
+
+    <!-- ===== 抽選操作 ===== -->
+    <div class="card hide" id="ops-card">
+      <h2>抽選操作</h2>
+      <p class="sub" style="margin:0 0 10px">
+        通常は毎分の自動処理（pg_cron）が抽選と失効を行います。ここは手動で先に進めたいときだけ使います。
+      </p>
+      <div class="row">
+        <button class="ghost" id="op-draw">いま抽選を1回進める</button>
+        <button class="danger" id="op-expire">当選中を全部いま失効させる</button>
+        <button class="ghost" id="op-edit">設定を編集</button>
+      </div>
+      <div class="msg" id="op-msg"></div>
+    </div>
+
+    <!-- ===== 応募一覧 ===== -->
+    <div class="card hide" id="entries-card">
+      <h2>応募一覧</h2>
+      <div class="row">
+        <div>
+          <label for="fl-status">状態</label>
+          <select id="fl-status">
+            <option value="">すべて</option>
+            <option value="won">当選中</option>
+            <option value="redeemed">利用済み</option>
+            <option value="entered">抽選待ち</option>
+            <option value="expired">失効</option>
+            <option value="void">無効</option>
+          </select>
+        </div>
+        <div>
+          <label for="fl-q">整理番号・メールで検索</label>
+          <input type="text" id="fl-q" placeholder="A-0001 / you@example.com">
+        </div>
+        <button class="ghost" id="fl-go">絞り込む</button>
+      </div>
+      <div class="scroll" style="margin-top:14px">
+        <table>
+          <thead><tr>
+            <th>整理番号</th><th>メール</th><th>状態</th><th>回</th>
+            <th>使用期限</th><th>消し込み</th><th>操作</th>
+          </tr></thead>
+          <tbody id="entries-body"></tbody>
+        </table>
+      </div>
+      <div class="msg" id="entries-msg"></div>
+    </div>
+
+    <!-- ===== 抽選履歴 ===== -->
+    <div class="card hide" id="draws-card">
+      <h2>抽選の記録</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>回</th><th>実行時刻</th><th>母数</th><th>空き枠</th><th>当選</th><th>使用期限</th><th>実行元</th></tr></thead>
+          <tbody id="draws-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var CFG = window.APP_CONFIG;
+  var sb  = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+  var $   = function (id) { return document.getElementById(id); };
+
+  var STATUS_JA = {
+    entered: '抽選待ち', won: '当選中', redeemed: '利用済み',
+    expired: '失効', void: '無効'
+  };
+
+  var EVENTS = [];
+  var CUR = null;   // 選択中のイベント行
+
+  function fmt(ts) {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleString('ja-JP', {
+      timeZone: 'Asia/Tokyo', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  function say(el, text, kind) {
+    el.textContent = text || '';
+    el.className = 'msg' + (text ? ' ' + (kind || 'warn') : '');
+  }
+
+  // datetime-local <-> ISO。ブラウザのタイムゾーンでそのまま扱う。
+  function toLocalInput(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    var pad = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+           'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function fromLocalInput(v) { return v ? new Date(v).toISOString() : null; }
+
+  // ===================================================================
+  // 認証ゲート
+  //   ログインは login.html が担当する。ここは「通ってよいか」だけを見て、
+  //   駄目ならログインページへ送り返す。
+  // ===================================================================
+  function bounce(reason) {
+    location.replace('login.html' + (reason ? '?m=' + reason : ''));
+  }
+
+  $('signout').addEventListener('click', function (e) {
+    e.preventDefault();
+    sb.auth.signOut().then(function () { bounce(); });
+  });
+
+  function boot(user) {
+    // admin_users に自分の行が見えるかどうかが管理者判定
+    sb.from('admin_users').select('user_id').eq('user_id', user.id).maybeSingle()
+      .then(function (a) {
+        if (a.error || !a.data) {
+          return sb.auth.signOut().then(function () { bounce('notadmin'); });
+        }
+        $('gate').classList.add('hide');
+        $('app').classList.remove('hide');
+        $('whoami').textContent = user.email;
+        loadEvents();
+      });
+  }
+
+  // セッションが切れたら即座にログインページへ戻す
+  sb.auth.onAuthStateChange(function (event) {
+    if (event === 'SIGNED_OUT') bounce('expired');
+  });
+
+  // ===================================================================
+  // イベント
+  // ===================================================================
+  function loadEvents(keepSlug) {
+    var want = keepSlug || (CUR && CUR.slug);
+    return sb.from('events').select('*').order('created_at', { ascending: false })
+      .then(function (r) {
+        if (r.error) { console.error(r.error); return; }
+        EVENTS = r.data || [];
+        $('ev-sel').innerHTML = EVENTS.map(function (e) {
+          return '<option value="' + e.slug + '">' + e.name + '（' + e.slug + ' / ' + e.status + '）</option>';
+        }).join('') || '<option value="">（イベントがありません）</option>';
+        if (want) $('ev-sel').value = want;
+        selectEvent($('ev-sel').value);
+      });
+  }
+
+  function selectEvent(slug) {
+    CUR = EVENTS.filter(function (e) { return e.slug === slug; })[0] || null;
+    var on = !!CUR;
+    ['ops-card', 'entries-card', 'draws-card'].forEach(function (id) {
+      $(id).classList.toggle('hide', !on);
+    });
+    if (!on) { $('ev-stats').innerHTML = ''; return; }
+    loadStats();
+    loadEntries();
+    loadDraws();
+  }
+
+  $('ev-sel').addEventListener('change', function () {
+    $('ev-form-card').classList.add('hide');
+    selectEvent(this.value);
+  });
+  $('ev-reload').addEventListener('click', function () { loadEvents(); });
+
+  function loadStats() {
+    sb.from('entries').select('status').eq('event_id', CUR.id).then(function (r) {
+      if (r.error) { console.error(r.error); return; }
+      var c = { entered: 0, won: 0, redeemed: 0, expired: 0, void: 0 };
+      (r.data || []).forEach(function (e) { c[e.status] = (c[e.status] || 0) + 1; });
+      var vacancy = CUR.winners_count - c.redeemed;
+      $('ev-stats').innerHTML =
+        '<div><b>' + CUR.winners_count + '</b>当選枠</div>' +
+        '<div><b>' + (r.data || []).length + '</b>応募</div>' +
+        '<div><b>' + c.won + '</b>当選中</div>' +
+        '<div><b>' + c.redeemed + '</b>利用済み</div>' +
+        '<div><b>' + (vacancy > 0 ? vacancy : 0) + '</b>残り枠</div>' +
+        '<div><b>' + c.entered + '</b>抽選待ち</div>' +
+        '<div><b>' + c.expired + '</b>失効</div>' +
+        '<div><b>' + CUR.rounds_done + ' / ' + CUR.max_rounds + '</b>抽選回数</div>';
+    });
+  }
+
+  // --- 設定フォーム ---------------------------------------------------
+  var editingId = null;
+
+  function openForm(ev) {
+    editingId = ev ? ev.id : null;
+    $('ev-form-title').textContent = ev ? 'イベント設定を編集' : 'イベントを新規作成';
+    $('f-slug').value    = ev ? ev.slug : '';
+    $('f-slug').disabled = !!ev;                 // slug は公開URLなので後から変えない
+    $('f-name').value    = ev ? ev.name : '';
+    $('f-desc').value    = ev ? ev.description : '';
+    $('f-open').value    = ev ? toLocalInput(ev.entry_open_at) : '';
+    $('f-close').value   = ev ? toLocalInput(ev.entry_close_at) : '';
+    $('f-draw').value    = ev ? toLocalInput(ev.first_draw_at) : '';
+    $('f-prefix').value  = ev ? ev.ticket_prefix : 'A-';
+    $('f-winners').value = ev ? ev.winners_count : 10;
+    $('f-claim').value   = ev ? ev.claim_window_minutes : 1440;
+    $('f-rounds').value  = ev ? ev.max_rounds : 3;
+    $('f-status').value  = ev ? ev.status : 'draft';
+    say($('f-msg'), '', null);
+    $('ev-form-card').classList.remove('hide');
+    $('ev-form-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  $('ev-new').addEventListener('click', function () { openForm(null); });
+  $('op-edit').addEventListener('click', function () { openForm(CUR); });
+  $('f-cancel').addEventListener('click', function () { $('ev-form-card').classList.add('hide'); });
+
+  $('ev-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var payload = {
+      slug: $('f-slug').value.trim(),
+      name: $('f-name').value.trim(),
+      description: $('f-desc').value,
+      entry_open_at: fromLocalInput($('f-open').value),
+      entry_close_at: fromLocalInput($('f-close').value),
+      first_draw_at: fromLocalInput($('f-draw').value),
+      ticket_prefix: $('f-prefix').value,
+      winners_count: parseInt($('f-winners').value, 10),
+      claim_window_minutes: parseInt($('f-claim').value, 10),
+      max_rounds: parseInt($('f-rounds').value, 10),
+      status: $('f-status').value
+    };
+    if (new Date(payload.entry_close_at) <= new Date(payload.entry_open_at)) {
+      say($('f-msg'), '応募締切は応募開始より後にしてください。', 'bad'); return;
+    }
+    if (new Date(payload.first_draw_at) < new Date(payload.entry_close_at)) {
+      say($('f-msg'), '第1回抽選は応募締切以降にしてください。', 'bad'); return;
+    }
+
+    $('f-save').disabled = true;
+    var q = editingId
+      ? sb.from('events').update(payload).eq('id', editingId)
+      : sb.from('events').insert(payload);
+
+    q.then(function (r) {
+      $('f-save').disabled = false;
+      if (r.error) { say($('f-msg'), '保存できません: ' + r.error.message, 'bad'); return; }
+      say($('f-msg'), '保存しました。', 'ok');
+      $('ev-form-card').classList.add('hide');
+      loadEvents(payload.slug);
+    });
+  });
+
+  // ===================================================================
+  // 抽選操作
+  // ===================================================================
+  $('op-draw').addEventListener('click', function () {
+    $('op-draw').disabled = true;
+    sb.rpc('admin_run_draw', { p_event_id: CUR.id }).then(function (r) {
+      $('op-draw').disabled = false;
+      if (r.error) { say($('op-msg'), r.error.message, 'bad'); return; }
+      say($('op-msg'), describeDraw(r.data), r.data && r.data.ok ? 'ok' : 'warn');
+      loadEvents();
+    });
+  });
+
+  $('op-expire').addEventListener('click', function () {
+    if (!window.confirm(
+      '現在「当選中」の全員をいま失効させます。\n' +
+      '空いた枠は次の抽選で次点の方に回ります。よろしいですか？')) return;
+    $('op-expire').disabled = true;
+    sb.rpc('admin_force_expire', { p_event_id: CUR.id }).then(function (r) {
+      $('op-expire').disabled = false;
+      if (r.error) { say($('op-msg'), r.error.message, 'bad'); return; }
+      say($('op-msg'), r.data.expired + ' 件を失効させました。「いま抽選を1回進める」で次点抽選ができます。', 'ok');
+      loadStats(); loadEntries();
+    });
+  });
+
+  function describeDraw(d) {
+    if (!d) return '応答がありません。';
+    if (d.ok && d.finished) {
+      return { all_redeemed: '全枠が利用済みになったため終了しました。',
+               max_rounds:   '抽選回数の上限に達したため終了しました。残り枠 ' + d.vacancy + '。',
+               no_candidates:'抽選できる応募者がいなくなったため終了しました。残り枠 ' + d.vacancy + '。'
+             }[d.reason] || '終了しました。';
+    }
+    if (d.ok) {
+      return '第' + d.round + '回抽選を実行: 母数 ' + d.candidates + ' 人から ' +
+             d.picked + ' 人当選（空き枠 ' + d.slots + '）。使用期限は ' + fmt(d.expires_at) + '。';
+    }
+    return { winners_pending: '使用期限内の当選者がまだ残っています。期限切れか「全部いま失効させる」の後に実行してください。',
+             too_early:       '第1回抽選の時刻（' + fmt(d.first_draw_at) + '）にまだ達していません。',
+             event_not_open:  'イベントの状態が open ではありません（現在 ' + d.status + '）。',
+             forbidden:       '権限がありません。'
+           }[d.error] || ('実行しませんでした: ' + d.error);
+  }
+
+  // ===================================================================
+  // 応募一覧
+  // ===================================================================
+  $('fl-go').addEventListener('click', loadEntries);
+  $('fl-status').addEventListener('change', loadEntries);
+  $('fl-q').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); loadEntries(); }
+  });
+
+  function loadEntries() {
+    if (!CUR) return;
+    var q = sb.from('entries').select('*').eq('event_id', CUR.id);
+    var st = $('fl-status').value;
+    if (st) q = q.eq('status', st);
+
+    // PostgREST の or() はカンマと括弧で区切るので、検索語からは落としておく
+    var term = $('fl-q').value.trim().replace(/[,()"*]/g, '');
+    if (term) q = q.or('ticket_no.ilike.%' + term + '%,email.ilike.%' + term + '%');
+
+    // 当選中を上に、あとは番号順
+    q.order('status', { ascending: true }).order('ticket_no', { ascending: true }).limit(500)
+      .then(function (r) {
+        if (r.error) { say($('entries-msg'), r.error.message, 'bad'); return; }
+        var rows = r.data || [];
+        say($('entries-msg'), rows.length >= 500 ? '先頭500件だけ表示しています。絞り込んでください。' : '', 'warn');
+        $('entries-body').innerHTML = rows.map(rowHtml).join('') ||
+          '<tr><td colspan="7" style="color:var(--muted)">該当なし</td></tr>';
+      });
+  }
+
+  function rowHtml(e) {
+    var overdue = e.status === 'won' && new Date(e.expires_at) <= new Date();
+    var shown = overdue ? 'expired' : e.status;
+    var btns = '';
+    if (e.status === 'won' || e.status === 'expired') {
+      btns += '<button class="small" data-act="redeem" data-id="' + e.id + '"' +
+              ' data-force="' + (shown === 'expired' ? '1' : '0') + '">消し込み</button> ';
+    }
+    if (e.status === 'redeemed') {
+      btns += '<button class="small ghost" data-act="unredeem" data-id="' + e.id + '">取消</button> ';
+    }
+    if (e.status !== 'void') {
+      btns += '<button class="small ghost" data-act="void" data-id="' + e.id + '">無効化</button>';
+    } else {
+      btns += '<button class="small ghost" data-act="unvoid" data-id="' + e.id + '">復帰</button>';
+    }
+    return '<tr>' +
+      '<td class="no">' + e.ticket_no + '</td>' +
+      '<td>' + e.email + '</td>' +
+      '<td><span class="badge ' + shown + '">' + (STATUS_JA[shown] || shown) + '</span></td>' +
+      '<td class="no">' + (e.round_won || '—') + '</td>' +
+      '<td>' + fmt(e.expires_at) + '</td>' +
+      '<td>' + fmt(e.redeemed_at) + '</td>' +
+      '<td style="white-space:nowrap">' + btns + '</td>' +
+      '</tr>';
+  }
+
+  $('entries-body').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    var id = btn.dataset.id, act = btn.dataset.act;
+    var call;
+
+    if (act === 'redeem') {
+      if (btn.dataset.force === '1' &&
+          !window.confirm('この当選は使用期限を過ぎています。それでも利用済みにしますか？')) return;
+      call = sb.rpc('admin_redeem', { p_entry_id: id, p_force: btn.dataset.force === '1' });
+    } else if (act === 'unredeem') {
+      if (!window.confirm('消し込みを取り消します。枠は空きに戻ります。よろしいですか？')) return;
+      call = sb.rpc('admin_unredeem', { p_entry_id: id });
+    } else if (act === 'void' || act === 'unvoid') {
+      call = sb.rpc('admin_set_void', { p_entry_id: id, p_void: act === 'void' });
+    }
+
+    btn.disabled = true;
+    call.then(function (r) {
+      btn.disabled = false;
+      if (r.error) { say($('entries-msg'), r.error.message, 'bad'); return; }
+      if (r.data && r.data.ok === false) {
+        say($('entries-msg'),
+            { expired: '使用期限を過ぎています。', already_redeemed: 'すでに消し込み済みです。',
+              forbidden: '権限がありません。', not_found: '見つかりません。'
+            }[r.data.error] || r.data.error, 'bad');
+      } else {
+        say($('entries-msg'), '', null);
+      }
+      loadStats(); loadEntries();
+    });
+  });
+
+  // ===================================================================
+  // 抽選履歴
+  // ===================================================================
+  function loadDraws() {
+    sb.from('draws').select('*').eq('event_id', CUR.id)
+      .order('round_no', { ascending: true }).then(function (r) {
+        if (r.error) return;
+        $('draws-body').innerHTML = (r.data || []).map(function (d) {
+          return '<tr><td class="no">第' + d.round_no + '回</td>' +
+                 '<td>' + fmt(d.executed_at) + '</td>' +
+                 '<td class="no">' + d.candidates + '</td>' +
+                 '<td class="no">' + d.slots + '</td>' +
+                 '<td class="no">' + d.picked + '</td>' +
+                 '<td>' + fmt(d.expires_at) + '</td>' +
+                 '<td class="sub" style="margin:0">' + d.triggered_by.split(':')[0] + '</td></tr>';
+        }).join('') || '<tr><td colspan="7" style="color:var(--muted)">まだ抽選は行われていません</td></tr>';
+      });
+  }
+
+  // 起動。セッションが無ければログインページへ。
+  sb.auth.getSession().then(function (r) {
+    var s = r.data && r.data.session;
+    if (!s) { bounce(); return; }
+    boot(s.user);
+  });
+})();
+</script>
+</body>
+</html>

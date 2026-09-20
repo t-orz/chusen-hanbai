@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>運営ログイン｜抽選管理</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap" style="max-width:420px;padding-top:6vh">
+
+  <h1>運営ログイン</h1>
+  <div class="sub">抽選管理システム</div>
+
+  <div class="card">
+    <form id="login-form" autocomplete="on">
+      <label for="li-email">メールアドレス</label>
+      <input type="email" id="li-email" required autocomplete="username">
+
+      <label for="li-pass">パスワード</label>
+      <input type="password" id="li-pass" required autocomplete="current-password">
+
+      <div style="margin-top:16px">
+        <button type="submit" id="li-btn" style="width:100%">ログイン</button>
+      </div>
+    </form>
+    <div class="msg" id="li-msg"></div>
+  </div>
+
+  <div class="nav" style="justify-content:center">
+    <a href="index.html">利用者向けページへ</a>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var CFG = window.APP_CONFIG;
+  var sb  = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+  var $   = function (id) { return document.getElementById(id); };
+
+  function say(text, kind) {
+    var el = $('li-msg');
+    el.textContent = text || '';
+    el.className = 'msg' + (text ? ' ' + (kind || 'warn') : '');
+  }
+
+  // admin.html から弾き返されてきたときの理由表示
+  var reason = new URLSearchParams(location.search).get('m');
+  if (reason === 'notadmin') {
+    say('このアカウントは管理者として登録されていません。', 'bad');
+  } else if (reason === 'expired') {
+    say('ログインの有効期限が切れました。もう一度ログインしてください。', 'warn');
+  }
+
+  // 管理者かどうかを確かめてから admin.html へ送る。
+  // admin_users は「自分の行だけ読める」ポリシーなので、
+  // 行が返ってくること自体が管理者である証明になる。
+  function gotoAdminIfAllowed(user) {
+    return sb.from('admin_users').select('user_id').eq('user_id', user.id).maybeSingle()
+      .then(function (r) {
+        if (r.error || !r.data) {
+          return sb.auth.signOut().then(function () {
+            say('このアカウントは管理者として登録されていません。' +
+                'supabase/05_admin_and_sample.sql の insert を実行してください。', 'bad');
+            $('li-btn').disabled = false;
+          });
+        }
+        location.replace('admin.html');
+      });
+  }
+
+  $('login-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    $('li-btn').disabled = true;
+    say('', null);
+    sb.auth.signInWithPassword({
+      email: $('li-email').value.trim(),
+      password: $('li-pass').value
+    }).then(function (r) {
+      if (r.error) {
+        $('li-btn').disabled = false;
+        say('ログインできません: ' + r.error.message, 'bad');
+        return;
+      }
+      return gotoAdminIfAllowed(r.data.user);
+    });
+  });
+
+  // すでにログイン済みならそのまま管理画面へ
+  sb.auth.getSession().then(function (r) {
+    var s = r.data && r.data.session;
+    if (s && !reason) { $('li-btn').disabled = true; gotoAdminIfAllowed(s.user); }
+  });
+})();
+</script>
+</body>
+</html>

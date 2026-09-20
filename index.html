@@ -25,7 +25,10 @@
         <tr><th>再抽選</th><td id="ev-rounds"></td></tr>
       </tbody>
     </table>
-    <div class="sub" style="margin:10px 0 0">記載の日時はすべて日本時間（JST）です。</div>
+    <div class="sub" style="margin:10px 0 0">
+      記載の日時はすべて日本時間（JST）です。<br>
+      イベント番号: <span id="ev-no" style="font-family:ui-monospace,Menlo,monospace"></span>
+    </div>
     <div class="msg warn" id="ev-phase"></div>
   </div>
 
@@ -193,6 +196,7 @@
         '<div><b>' + d.redeemed_count + '</b>利用済み</div>' +
         '<div><b>' + d.active_winner_count + '</b>当選中</div>';
 
+      $('ev-no').textContent     = d.event_no || '—';
       $('ev-entry').textContent  = fmt(d.entry_open_at) + ' 〜 ' + fmt(d.entry_close_at);
       $('ev-draw').textContent   = fmt(d.first_draw_at);
       $('ev-claim').textContent  = '当選から ' + dur(d.claim_window_minutes) + '以内';

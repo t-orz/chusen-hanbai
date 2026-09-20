@@ -34,6 +34,12 @@
         <button class="ghost" id="ev-new">新規作成</button>
         <button class="ghost" id="ev-reload">再読込</button>
       </div>
+      <div id="ev-no-row" class="hide" style="margin-top:14px">
+        <label for="ev-no" style="margin:0 0 4px">イベント番号</label>
+        <input type="text" id="ev-no" readonly onclick="this.select()"
+               style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+                      font-size:1.05rem; letter-spacing:.06em; max-width:320px">
+      </div>
       <div class="stats" id="ev-stats" style="margin-top:16px"></div>
     </div>
 
@@ -258,6 +264,13 @@
         $('tzinfo').classList.remove('hide');
         $('app').classList.remove('hide');
         $('whoami').textContent = user.email;
+        // 自分のユーザー番号を出す。イベント番号の先頭6桁がこれになる。
+        sb.rpc('my_admin_profile').then(function (p) {
+          if (p.data && p.data.ok) {
+            $('whoami').textContent =
+              user.email + '（ユーザー番号 ' + p.data.user_no_hex + '）';
+          }
+        });
         loadEvents();
       });
   }
@@ -277,7 +290,9 @@
         if (r.error) { console.error(r.error); return; }
         EVENTS = r.data || [];
         $('ev-sel').innerHTML = EVENTS.map(function (e) {
-          return '<option value="' + e.slug + '">' + e.name + '（' + e.slug + ' / ' + e.status + '）</option>';
+          return '<option value="' + e.slug + '">' +
+                 (e.event_no || '(番号未採番)') + ' ｜ ' + e.name +
+                 '（' + e.status + '）</option>';
         }).join('') || '<option value="">（イベントがありません）</option>';
         if (want) $('ev-sel').value = want;
         selectEvent($('ev-sel').value);
@@ -290,7 +305,9 @@
     ['ops-card', 'entries-card', 'draws-card'].forEach(function (id) {
       $(id).classList.toggle('hide', !on);
     });
+    $('ev-no-row').classList.toggle('hide', !on);
     if (!on) { $('ev-stats').innerHTML = ''; return; }
+    $('ev-no').value = CUR.event_no || '(番号未採番)';
     // 掲示コードは来店者限定のイベントでだけ意味を持つ
     $('codes-card').classList.toggle('hide', !CUR.require_entry_code);
     loadStats();

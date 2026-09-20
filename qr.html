@@ -68,6 +68,7 @@
   </ol>
   <p class="note" id="p-note"></p>
   <p class="label" id="p-label"></p>
+  <p class="label" id="p-evno" style="font-family:ui-monospace,Menlo,monospace"></p>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
@@ -115,11 +116,12 @@
     }
 
     // イベント名と掲示場所のメモを載せる
-    sb.from('events').select('name, pass_window_minutes').eq('slug', SLUG).maybeSingle()
+    sb.from('events').select('name, pass_window_minutes, event_no').eq('slug', SLUG).maybeSingle()
       .then(function (r) {
         var name = (r.data && r.data.name) || SLUG;
         var win  = (r.data && r.data.pass_window_minutes) || 30;
         $('p-name').textContent = name;
+        $('p-evno').textContent = (r.data && r.data.event_no) ? 'イベント番号 ' + r.data.event_no : '';
         $('p-note').textContent =
           '読み取りから ' + win + '分以内に応募を完了してください。' +
           'このQRコードはご来店の確認を兼ねています。';

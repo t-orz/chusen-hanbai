@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>掲示用 QR</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* 掲示物そのもの。A4 縦に1枚で収まるサイズに寄せてある */
+  .poster {
+    background: #fff;
+    color: #111;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 32px 28px 28px;
+    text-align: center;
+    max-width: 520px;
+    margin: 0 auto;
+  }
+  .poster .ev   { font-size: 1.5rem; font-weight: 700; margin: 0 0 4px; }
+  .poster .lead { font-size: .95rem; color: #444; margin: 0 0 22px; }
+  .poster .qr   { display: flex; justify-content: center; margin: 0 0 20px; }
+  .poster .qr svg { width: 300px; height: 300px; display: block; }
+  .poster .steps {
+    text-align: left;
+    display: inline-block;
+    font-size: .92rem;
+    line-height: 1.9;
+    color: #222;
+    margin: 0;
+    padding-left: 1.2em;
+  }
+  .poster .note { font-size: .78rem; color: #666; margin: 18px 0 0; }
+  .poster .label { font-size: .72rem; color: #999; margin: 14px 0 0; }
+
+  .toolbar { max-width: 520px; margin: 0 auto 18px; }
+
+  @media print {
+    body { background: #fff; padding: 0; }
+    .toolbar, .noprint { display: none !important; }
+    .poster { border: 0; max-width: none; padding: 0; }
+    .poster .qr svg { width: 340px; height: 340px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar noprint">
+  <div class="nav">
+    <a href="admin.html">管理画面に戻る</a>
+  </div>
+  <div class="row">
+    <button id="print-btn">印刷する</button>
+    <button class="ghost" id="copy-btn">URL をコピー</button>
+  </div>
+  <div class="msg" id="msg"></div>
+</div>
+
+<div class="poster hide" id="poster">
+  <p class="ev" id="p-name"></p>
+  <p class="lead">抽選販売 応募受付</p>
+  <div class="qr" id="p-qr"></div>
+  <ol class="steps">
+    <li>スマートフォンのカメラで QR コードを読み取る</li>
+    <li>表示されたページでメールアドレスを入力</li>
+    <li>整理番号が発行されます</li>
+  </ol>
+  <p class="note" id="p-note"></p>
+  <p class="label" id="p-label"></p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var CFG  = window.APP_CONFIG;
+  var sb   = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+  var $    = function (id) { return document.getElementById(id); };
+
+  var QS   = new URLSearchParams(location.search);
+  var SLUG = QS.get('e');
+  var CODE = QS.get('k');
+
+  function say(text, kind) {
+    $('msg').textContent = text || '';
+    $('msg').className = 'msg' + (text ? ' ' + (kind || 'warn') : '');
+  }
+
+  // 掲示コードは秘密なので、このページも管理者しか開けないようにする
+  sb.auth.getSession().then(function (r) {
+    var s = r.data && r.data.session;
+    if (!s) { location.replace('login.html'); return; }
+    return sb.from('admin_users').select('user_id').eq('user_id', s.user.id).maybeSingle()
+      .then(function (a) {
+        if (a.error || !a.data) {
+          return sb.auth.signOut().then(function () { location.replace('login.html?m=notadmin'); });
+        }
+        render();
+      });
+  });
+
+  function entryUrl() {
+    return location.origin + location.pathname.replace(/qr\.html$/, '') +
+           '?e=' + encodeURIComponent(SLUG) + '&k=' + encodeURIComponent(CODE);
+  }
+
+  function render() {
+    if (!SLUG || !CODE) {
+      say('URL が不正です。管理画面の「QR を印刷」から開いてください。', 'bad');
+      return;
+    }
+
+    // イベント名と掲示場所のメモを載せる
+    sb.from('events').select('name, pass_window_minutes').eq('slug', SLUG).maybeSingle()
+      .then(function (r) {
+        var name = (r.data && r.data.name) || SLUG;
+        var win  = (r.data && r.data.pass_window_minutes) || 30;
+        $('p-name').textContent = name;
+        $('p-note').textContent =
+          '読み取りから ' + win + '分以内に応募を完了してください。' +
+          'このQRコードはご来店の確認を兼ねています。';
+        return sb.from('entry_codes').select('label').eq('code', CODE).maybeSingle();
+      })
+      .then(function (r) {
+        var label = r && r.data && r.data.label;
+        $('p-label').textContent = label ? '掲示場所: ' + label : '';
+
+        var qr = qrcode(0, 'M');           // 誤り訂正レベル M。印刷物なら十分
+        qr.addData(entryUrl());
+        qr.make();
+        $('p-qr').innerHTML = qr.createSvgTag({ cellSize: 8, margin: 2, scalable: true });
+        $('poster').classList.remove('hide');
+      });
+  }
+
+  $('print-btn').addEventListener('click', function () { window.print(); });
+
+  $('copy-btn').addEventListener('click', function () {
+    navigator.clipboard.writeText(entryUrl())
+      .then(function () { say('URL をコピーしました。', 'ok'); })
+      .catch(function () { say('コピーできませんでした。URL: ' + entryUrl(), 'warn'); });
+  });
+})();
+</script>
+</body>
+</html>

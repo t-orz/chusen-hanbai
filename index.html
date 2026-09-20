@@ -32,21 +32,28 @@
   <!-- ===== 整理番号の発行 ===== -->
   <div class="card hide" id="entry-card">
     <h2>整理番号を受け取る</h2>
-    <p class="sub" style="margin:0 0 8px">
-      メールアドレス1つにつき整理番号は1つです。同じアドレスで送り直しても番号は変わりません。
-    </p>
-    <form id="entry-form">
-      <label for="entry-email">メールアドレス</label>
-      <div class="row">
-        <input type="email" id="entry-email" required autocomplete="email" placeholder="you@example.com">
-        <button type="submit" id="entry-btn">整理番号を発行</button>
+
+    <!-- 来店者限定イベントで、QR を読まずに来た人に出す案内 -->
+    <div class="msg bad hide" id="gate-msg"></div>
+
+    <div id="entry-body">
+      <div class="msg ok hide" id="pass-banner"></div>
+      <p class="sub" style="margin:0 0 8px">
+        メールアドレス1つにつき整理番号は1つです。同じアドレスで送り直しても番号は変わりません。
+      </p>
+      <form id="entry-form">
+        <label for="entry-email">メールアドレス</label>
+        <div class="row">
+          <input type="email" id="entry-email" required autocomplete="email" placeholder="you@example.com">
+          <button type="submit" id="entry-btn">整理番号を発行</button>
+        </div>
+      </form>
+      <div class="msg" id="entry-msg"></div>
+      <div class="ticket hide" id="entry-ticket">
+        <div class="cap">あなたの整理番号</div>
+        <div class="no" id="entry-no"></div>
+        <div class="cap" id="entry-note"></div>
       </div>
-    </form>
-    <div class="msg" id="entry-msg"></div>
-    <div class="ticket hide" id="entry-ticket">
-      <div class="cap">あなたの整理番号</div>
-      <div class="no" id="entry-no"></div>
-      <div class="cap" id="entry-note"></div>
     </div>
   </div>
 
@@ -97,10 +104,16 @@
   'use strict';
 
   var CFG  = window.APP_CONFIG;
-  var SLUG = new URLSearchParams(location.search).get('e') || CFG.DEFAULT_EVENT_SLUG;
+  var QS   = new URLSearchParams(location.search);
+  var SLUG = QS.get('e') || CFG.DEFAULT_EVENT_SLUG;
+  var CODE = QS.get('k');                    // 店内掲示 QR に埋めた秘密コード
   var sb   = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
 
   var $ = function (id) { return document.getElementById(id); };
+
+  var PASS_KEY = 'chusen:pass:' + SLUG;      // 入店パスの置き場
+  var PASS = null;                           // { pass_id, expires_at }
+  var DONE = false;                          // この画面で整理番号を受け取り済みか
 
   var STATUS_JA = {
     entered:  '抽選待ち',
@@ -116,7 +129,14 @@
     entry_not_started:'応募の受付はまだ始まっていません。',
     entry_closed:     '応募の受付は終了しました。',
     invalid_email:    'メールアドレスの形式が正しくありません。',
-    not_found:        '該当する整理番号が見つかりません。番号とメールアドレスをご確認ください。'
+    not_found:        '該当する整理番号が見つかりません。番号とメールアドレスをご確認ください。',
+    invalid_code:     'この QR コードはこのイベントでは使用できません。',
+    code_disabled:    'この QR コードは現在無効です。店頭のスタッフにお尋ねください。',
+    code_exhausted:   'この QR コードからの受付は上限に達しました。',
+    pass_required:    '店内の QR コードを読み取ってから応募してください。',
+    pass_invalid:     '読み取り情報が確認できませんでした。QR コードをもう一度読み取ってください。',
+    pass_used:        'この読み取りは既に使用済みです。QR コードをもう一度読み取ってください。',
+    pass_expired:     '読み取りから時間が経ちすぎました。QR コードをもう一度読み取ってください。'
   };
 
   // --- 表示ヘルパ -----------------------------------------------------
@@ -192,6 +212,7 @@
     if (canEnter) {
       $('entry-card').classList.remove('hide');
       say($('ev-phase'), '', null);
+      applyGate(d);
       return;
     }
     if (d.status === 'finished') {
@@ -203,6 +224,125 @@
     } else {
       say($('ev-phase'), '応募受付は終了しました。当落は下の照会からご確認ください。', 'warn');
     }
+  }
+
+  // --- 入店パス（来店者限定イベント用）--------------------------------
+  //
+  // 店内に掲示した QR には ?e=<slug>&k=<秘密コード> が入っている。
+  // 読み取ると claim_store_pass で1回限りのパスを受け取り、
+  // 30分以内にメールを入れて整理番号を取る、という流れ。
+  //
+  // パスは sessionStorage に置く。タブを閉じれば消える性質が
+  // 「店を出てから家族に転送する」を少しだけ面倒にする。
+
+  function loadPass() {
+    try {
+      var p = JSON.parse(sessionStorage.getItem(PASS_KEY) || 'null');
+      if (p && new Date(p.expires_at).getTime() > Date.now()) return p;
+    } catch (err) { /* 読めなければパス無しとして扱う */ }
+    return null;
+  }
+
+  function savePass(p) {
+    PASS = p;
+    try { sessionStorage.setItem(PASS_KEY, JSON.stringify(p)); }
+    catch (err) { /* 保存できなくてもこのページ内では動く */ }
+  }
+
+  function clearPass() {
+    PASS = null;
+    try { sessionStorage.removeItem(PASS_KEY); } catch (err) { /* 無視 */ }
+  }
+
+  // URL から k を消す。アドレスバーのスクリーンショットや
+  // 「共有」からコードが漏れるのを少しでも減らすため。
+  function stripCodeFromUrl() {
+    if (!CODE) return;
+    var q = new URLSearchParams(location.search);
+    q.delete('k');
+    var url = location.pathname + (q.toString() ? '?' + q.toString() : '');
+    try { history.replaceState(null, '', url); } catch (err) { /* 無視 */ }
+  }
+
+  function applyGate(d) {
+    // 受け取り済みなら、発行された番号を出したまま静かにしておく
+    if (DONE) {
+      $('gate-msg').classList.add('hide');
+      $('entry-body').classList.remove('hide');
+      return;
+    }
+
+    if (!d.require_entry_code) {
+      $('gate-msg').classList.add('hide');
+      $('entry-body').classList.remove('hide');
+      return;
+    }
+
+    PASS = PASS || loadPass();
+
+    if (PASS) {
+      $('gate-msg').classList.add('hide');
+      $('entry-body').classList.remove('hide');
+      startPassCountdown();
+      return;
+    }
+
+    if (CODE) {
+      // QR から来たので、これからパスを取る
+      $('entry-body').classList.add('hide');
+      $('gate-msg').classList.remove('hide');
+      $('gate-msg').className = 'msg warn';
+      $('gate-msg').textContent = '読み取りを確認しています…';
+      rpc('claim_store_pass', { p_slug: SLUG, p_code: CODE }).then(function (r) {
+        stripCodeFromUrl();
+        if (!r || !r.ok) {
+          $('gate-msg').className = 'msg bad';
+          $('gate-msg').textContent = errText(r);
+          return;
+        }
+        savePass({ pass_id: r.pass_id, expires_at: r.expires_at });
+        $('gate-msg').classList.add('hide');
+        $('entry-body').classList.remove('hide');
+        startPassCountdown();
+      });
+      return;
+    }
+
+    // QR を読まずに直接来た人
+    $('entry-body').classList.add('hide');
+    $('gate-msg').classList.remove('hide');
+    $('gate-msg').className = 'msg bad';
+    $('gate-msg').textContent =
+      'このイベントは店頭にご来店いただいた方限定です。' +
+      '店内に掲示している QR コードを読み取ってから、このページを開いてください。';
+  }
+
+  var passTimer = null;
+
+  function startPassCountdown() {
+    if (passTimer) clearInterval(passTimer);
+    var tick = function () {
+      if (!PASS) return;
+      var left = Math.floor((new Date(PASS.expires_at).getTime() - Date.now()) / 1000);
+      if (left <= 0) {
+        clearInterval(passTimer);
+        clearPass();
+        $('entry-body').classList.add('hide');
+        $('gate-msg').classList.remove('hide');
+        $('gate-msg').className = 'msg bad';
+        $('gate-msg').textContent =
+          '読み取りから時間が経過したため、受付を終了しました。' +
+          '店内の QR コードをもう一度読み取ってください。';
+        return;
+      }
+      var m = Math.floor(left / 60), s = left % 60;
+      $('pass-banner').classList.remove('hide');
+      $('pass-banner').className = 'msg ' + (left < 300 ? 'warn' : 'ok');
+      $('pass-banner').textContent =
+        'ご来店の確認ができました。残り ' + m + '分' + String(s).padStart(2, '0') + '秒 以内に応募を完了してください。';
+    };
+    tick();
+    passTimer = setInterval(tick, 1000);
   }
 
   // --- 抽選履歴 -------------------------------------------------------
@@ -232,9 +372,25 @@
     btn.disabled = true;
     say($('entry-msg'), '', null);
 
-    rpc('issue_ticket', { p_slug: SLUG, p_email: email }).then(function (d) {
+    rpc('issue_ticket', {
+      p_slug: SLUG, p_email: email,
+      p_pass_id: PASS ? PASS.pass_id : null
+    }).then(function (d) {
       btn.disabled = false;
-      if (!d || !d.ok) { say($('entry-msg'), errText(d), 'bad'); return; }
+      if (!d || !d.ok) {
+        say($('entry-msg'), errText(d), 'bad');
+        // パス側の失敗なら、もう一度読み取ってもらうしかない
+        if (d && /^pass_/.test(d.error || '')) { clearPass(); loadEvent(); }
+        return;
+      }
+
+      // パスは1回限り。使い終わったので捨てる。
+      DONE = true;
+      if (passTimer) clearInterval(passTimer);
+      clearPass();
+      $('pass-banner').classList.add('hide');
+      $('entry-email').disabled = true;
+      $('entry-btn').disabled = true;
 
       $('entry-ticket').classList.remove('hide');
       $('entry-no').textContent = d.ticket_no;

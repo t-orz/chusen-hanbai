@@ -68,6 +68,13 @@
                <input type="number" id="f-claim" min="1" required></div>
           <div><label for="f-rounds">抽選の最大回数（第1回を含む）</label>
                <input type="number" id="f-rounds" min="1" required></div>
+          <div><label for="f-reqcode">応募できる人</label>
+               <select id="f-reqcode">
+                 <option value="false">誰でも（URL を知っていれば応募可）</option>
+                 <option value="true">来店者限定（店内 QR の読み取りが必要）</option>
+               </select></div>
+          <div><label for="f-passwin">QR 読み取り後の有効時間（分）</label>
+               <input type="number" id="f-passwin" min="1" required></div>
           <div><label for="f-status">状態</label>
                <select id="f-status">
                  <option value="draft">draft（下書き・非公開）</option>
@@ -96,6 +103,37 @@
         <button class="ghost" id="op-edit">設定を編集</button>
       </div>
       <div class="msg" id="op-msg"></div>
+    </div>
+
+    <!-- ===== 店内掲示コード ===== -->
+    <div class="card hide" id="codes-card">
+      <h2>店内掲示コード</h2>
+      <p class="sub" style="margin:0 0 12px">
+        来店者限定イベントで使う QR コードです。掲示場所ごとに発行できます。
+        コードは URL に入る秘密の文字列なので、撮影して転送されれば店外からも使えます。
+        使用数が想定を超えたら無効化して、新しいコードで刷り直してください。
+      </p>
+      <div class="row">
+        <div>
+          <label for="c-label">掲示場所のメモ</label>
+          <input type="text" id="c-label" placeholder="本店入口">
+        </div>
+        <div>
+          <label for="c-max">上限人数（空欄で無制限）</label>
+          <input type="number" id="c-max" min="1" placeholder="500">
+        </div>
+        <button class="ghost" id="c-new">コードを発行</button>
+      </div>
+      <div class="scroll" style="margin-top:14px">
+        <table>
+          <thead><tr>
+            <th>掲示場所</th><th>状態</th><th>発行数</th><th>読み取り</th>
+            <th>掲示 URL</th><th>操作</th>
+          </tr></thead>
+          <tbody id="codes-body"></tbody>
+        </table>
+      </div>
+      <div class="msg" id="codes-msg"></div>
     </div>
 
     <!-- ===== 応募一覧 ===== -->
@@ -253,9 +291,12 @@
       $(id).classList.toggle('hide', !on);
     });
     if (!on) { $('ev-stats').innerHTML = ''; return; }
+    // 掲示コードは来店者限定のイベントでだけ意味を持つ
+    $('codes-card').classList.toggle('hide', !CUR.require_entry_code);
     loadStats();
     loadEntries();
     loadDraws();
+    if (CUR.require_entry_code) loadCodes();
   }
 
   $('ev-sel').addEventListener('change', function () {
@@ -299,6 +340,8 @@
     $('f-winners').value = ev ? ev.winners_count : 10;
     $('f-claim').value   = ev ? ev.claim_window_minutes : 1440;
     $('f-rounds').value  = ev ? ev.max_rounds : 3;
+    $('f-reqcode').value = ev ? String(!!ev.require_entry_code) : 'false';
+    $('f-passwin').value = ev ? ev.pass_window_minutes : 30;
     $('f-status').value  = ev ? ev.status : 'draft';
     say($('f-msg'), '', null);
     $('ev-form-card').classList.remove('hide');
@@ -322,6 +365,8 @@
       winners_count: parseInt($('f-winners').value, 10),
       claim_window_minutes: parseInt($('f-claim').value, 10),
       max_rounds: parseInt($('f-rounds').value, 10),
+      require_entry_code: $('f-reqcode').value === 'true',
+      pass_window_minutes: parseInt($('f-passwin').value, 10),
       status: $('f-status').value
     };
     if (new Date(payload.entry_close_at) <= new Date(payload.entry_open_at)) {
@@ -389,6 +434,91 @@
              forbidden:       '権限がありません。'
            }[d.error] || ('実行しませんでした: ' + d.error);
   }
+
+  // ===================================================================
+  // 店内掲示コード
+  // ===================================================================
+  function entryUrl(code) {
+    return location.origin + location.pathname.replace(/admin\.html$/, '') +
+           '?e=' + encodeURIComponent(CUR.slug) + '&k=' + encodeURIComponent(code);
+  }
+
+  function loadCodes() {
+    sb.from('entry_codes').select('*').eq('event_id', CUR.id)
+      .order('created_at', { ascending: true }).then(function (r) {
+        if (r.error) { say($('codes-msg'), r.error.message, 'bad'); return; }
+        var rows = r.data || [];
+        if (!rows.length) {
+          $('codes-body').innerHTML =
+            '<tr><td colspan="6" style="color:var(--muted)">' +
+            'まだコードがありません。上のフォームから発行してください。</td></tr>';
+          return;
+        }
+        // 読み取り回数（パス発行数）も出す。発行数との差が「読んだが応募しなかった人」
+        sb.from('store_passes').select('code_id').eq('event_id', CUR.id).then(function (p) {
+          var scans = {};
+          (p.data || []).forEach(function (x) { scans[x.code_id] = (scans[x.code_id] || 0) + 1; });
+          $('codes-body').innerHTML = rows.map(function (c) {
+            var url = entryUrl(c.code);
+            return '<tr>' +
+              '<td>' + (c.label || '—') + '</td>' +
+              '<td><span class="badge ' + (c.active ? 'won' : 'expired') + '">' +
+                   (c.active ? '有効' : '停止中') + '</span></td>' +
+              '<td class="no">' + c.uses + (c.max_uses ? ' / ' + c.max_uses : '') + '</td>' +
+              '<td class="no">' + (scans[c.id] || 0) + '</td>' +
+              '<td><input type="text" readonly value="' + url + '" ' +
+                   'style="font-size:.78rem" onclick="this.select()"></td>' +
+              '<td style="white-space:nowrap">' +
+                '<button class="small" data-cact="qr" data-code="' + c.code + '">QR を印刷</button> ' +
+                '<button class="small ghost" data-cact="toggle" data-id="' + c.id + '" ' +
+                        'data-active="' + (c.active ? '0' : '1') + '">' +
+                  (c.active ? '停止' : '再開') + '</button>' +
+              '</td></tr>';
+          }).join('');
+        });
+      });
+  }
+
+  $('c-new').addEventListener('click', function () {
+    var max = $('c-max').value.trim();
+    $('c-new').disabled = true;
+    sb.from('entry_codes').insert({
+      event_id: CUR.id,
+      label: $('c-label').value.trim(),
+      max_uses: max ? parseInt(max, 10) : null
+    }).then(function (r) {
+      $('c-new').disabled = false;
+      if (r.error) { say($('codes-msg'), r.error.message, 'bad'); return; }
+      say($('codes-msg'), 'コードを発行しました。「QR を印刷」から掲示物を作れます。', 'ok');
+      $('c-label').value = '';
+      $('c-max').value = '';
+      loadCodes();
+    });
+  });
+
+  $('codes-body').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-cact]');
+    if (!btn) return;
+
+    if (btn.dataset.cact === 'qr') {
+      window.open('qr.html?e=' + encodeURIComponent(CUR.slug) +
+                  '&k=' + encodeURIComponent(btn.dataset.code), '_blank');
+      return;
+    }
+
+    var toActive = btn.dataset.active === '1';
+    if (!toActive && !window.confirm(
+      'このコードを停止します。\n掲示中の QR からは応募できなくなります。よろしいですか？')) return;
+
+    btn.disabled = true;
+    sb.from('entry_codes').update({ active: toActive }).eq('id', btn.dataset.id)
+      .then(function (r) {
+        btn.disabled = false;
+        if (r.error) { say($('codes-msg'), r.error.message, 'bad'); return; }
+        say($('codes-msg'), '', null);
+        loadCodes();
+      });
+  });
 
   // ===================================================================
   // 応募一覧

@@ -56,17 +56,26 @@ entered ──抽選で当選──> won ──期限までに利用──> rede
 | `04_cron.sql` | 毎分の自動処理を登録 |
 | `05_admin_and_sample.sql` | 管理者登録とテスト用イベント（中身を書き換えてから） |
 | `06_timezone_jst.sql` | 日本時間で読み書きするための設定と確認用ビュー |
+| `07_admin_bootstrap.sql` | 許可リストに載ったメールを自動で管理者にする |
+| `08_store_entry_codes.sql` | 来店者限定の応募（店内掲示 QR コード） |
 
 `04_cron.sql` が `extension "pg_cron" is not available` で落ちる場合は、
 Database > Extensions で `pg_cron` を有効化してから再実行する。
 
 ### 2. 管理者アカウントを作る
 
-1. Authentication > Users > **Add user** でメールとパスワードのユーザーを作る
-   （**Auto Confirm User** を ON にする）
-2. `05_admin_and_sample.sql` の `you@example.com` をそのアドレスに書き換えて実行
+`07_admin_bootstrap.sql` を流してあれば、許可リストに載っているメールアドレスの
+ユーザーを作るだけで自動的に管理者になる。
+
+1. `admin_allowlist` にメールアドレスを入れる
+   ```sql
+   insert into public.admin_allowlist (email, note) values ('you@example.com', '運営');
+   ```
+2. Authentication > Users > **Add user** > **Create new user** で同じアドレスの
+   ユーザーを作る（**Auto Confirm User** を ON にする）
 
 `admin_users` に行が入っていないアカウントは管理画面に入れない。
+先にユーザーを作ってしまった場合は `07_admin_bootstrap.sql` の末尾の insert を流す。
 
 ### 3. 公開キー（設定済み）
 
@@ -167,6 +176,55 @@ Authentication > URL Configuration の **Site URL** に Pages の URL を入れ�
 
 ---
 
+## 来店者限定の応募（店内掲示 QR）
+
+イベント設定で「来店者限定」にすると、店内に掲示した QR コードを読み取った人しか
+整理番号を受け取れなくなる。
+
+### 流れ
+
+```
+店内のポスター     ?e=<slug>&k=<秘密コード> を QR にしたもの
+      │ 読み取る
+      ▼
+claim_store_pass()  入店パスを1枚発行（30分有効・1回限り・ID は推測不能な uuid）
+      │             URL から k を消して、アドレスバーに残らないようにする
+      ▼
+issue_ticket()      有効なパスが無ければ拒否。使うとパスは消費済みになる
+      ▼
+整理番号
+```
+
+### 運用
+
+1. イベント設定で「応募できる人」を**来店者限定**にする
+2. 「店内掲示コード」でコードを発行する（掲示場所ごとに複数可、上限人数も設定可）
+3. 「QR を印刷」で掲示物を出して店内に貼る
+
+管理画面では各コードの **発行数**（実際に整理番号が出た数）と **読み取り**（QR を読んだ数）
+が並んで見える。読み取りだけが伸びて発行数が伸びない場合は、離脱か不正の兆候。
+
+### この方式の限界
+
+**印刷した QR の URL は、撮影して転送されれば店外からでも使える。**
+静的な QR である以上これは消せない。そのため次を用意してある。
+
+| 手段 | 効果 |
+| --- | --- |
+| 上限人数 | そのコードから出せる整理番号の総数を頭打ちにする |
+| 読み取り数の可視化 | 拡散されると読み取り数が跳ねるので気づける |
+| コードの停止と再発行 | 拡散されたら停止し、新しいコードで刷り直す |
+| 30分の有効期限 | 転送された URL がいつまでも使えるわけではない |
+| sessionStorage 保存 | タブを閉じるとパスが消える |
+
+上限は「実際に整理番号が出た数」で数えている。QR を読んだだけでは減らないので、
+悪意のある人が空スキャンを繰り返して枠を潰すことはできない。
+
+転載を実質的に防ぎたい場合は、印刷ではなく店内のモニターに
+数十秒ごとに変わる QR を出す方式が要る。今の実装には入っていない。
+
+---
+
 ## 時刻の扱い
 
 **このアプリの日時はすべて日本時間（JST）で考える。**
@@ -228,6 +286,7 @@ select * from public.draws_jst   where event_slug = 'autumn-2026' order by round
 index.html                利用者用画面（整理番号の発行・当落照会）
 login.html                運営用ログインページ
 admin.html                運営用画面（未ログインなら login.html へ転送）
+qr.html                   掲示用 QR の印刷ページ（管理者のみ）
 config.js                 接続設定（anon キーをここに入れる）
 style.css                 共通スタイル
 .nojekyll                 Pages に Jekyll 処理をさせない印
@@ -237,6 +296,9 @@ supabase/
   03_rls_grants.sql       RLS ポリシーと実行権限
   04_cron.sql             pg_cron への登録
   05_admin_and_sample.sql 管理者登録・テスト用イベント・確認手順
+  06_timezone_jst.sql     日本時間の設定と JST 表示ビュー
+  07_admin_bootstrap.sql  許可リストによる管理者の自動登録
+  08_store_entry_codes.sql 来店者限定の応募（店内掲示 QR）
 ```
 
 画面のつながり:

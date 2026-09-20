@@ -48,8 +48,6 @@
       <h2 id="ev-form-title">イベント設定</h2>
       <form id="ev-form">
         <div class="grid2">
-          <div><label for="f-slug">slug（URL の ?e= に入る文字）</label>
-               <input type="text" id="f-slug" required pattern="[a-z0-9\-]+" placeholder="autumn-2026"></div>
           <div><label for="f-name">イベント名</label>
                <input type="text" id="f-name" required></div>
         </div>
@@ -283,24 +281,23 @@
   // ===================================================================
   // イベント
   // ===================================================================
-  function loadEvents(keepSlug) {
-    var want = keepSlug || (CUR && CUR.slug);
+  function loadEvents(keepEvNo) {
+    var want = keepEvNo || (CUR && CUR.event_no);
     return sb.from('events').select('*').order('created_at', { ascending: false })
       .then(function (r) {
         if (r.error) { console.error(r.error); return; }
         EVENTS = r.data || [];
         $('ev-sel').innerHTML = EVENTS.map(function (e) {
-          return '<option value="' + e.slug + '">' +
-                 (e.event_no || '(番号未採番)') + ' ｜ ' + e.name +
-                 '（' + e.status + '）</option>';
+          return '<option value="' + e.event_no + '">' +
+                 e.event_no + ' ｜ ' + e.name + '（' + e.status + '）</option>';
         }).join('') || '<option value="">（イベントがありません）</option>';
         if (want) $('ev-sel').value = want;
         selectEvent($('ev-sel').value);
       });
   }
 
-  function selectEvent(slug) {
-    CUR = EVENTS.filter(function (e) { return e.slug === slug; })[0] || null;
+  function selectEvent(evno) {
+    CUR = EVENTS.filter(function (e) { return e.event_no === evno; })[0] || null;
     var on = !!CUR;
     ['ops-card', 'entries-card', 'draws-card'].forEach(function (id) {
       $(id).classList.toggle('hide', !on);
@@ -346,8 +343,6 @@
   function openForm(ev) {
     editingId = ev ? ev.id : null;
     $('ev-form-title').textContent = ev ? 'イベント設定を編集' : 'イベントを新規作成';
-    $('f-slug').value    = ev ? ev.slug : '';
-    $('f-slug').disabled = !!ev;                 // slug は公開URLなので後から変えない
     $('f-name').value    = ev ? ev.name : '';
     $('f-desc').value    = ev ? ev.description : '';
     $('f-open').value    = ev ? toJstInput(ev.entry_open_at) : '';
@@ -372,7 +367,6 @@
   $('ev-form').addEventListener('submit', function (e) {
     e.preventDefault();
     var payload = {
-      slug: $('f-slug').value.trim(),
       name: $('f-name').value.trim(),
       description: $('f-desc').value,
       entry_open_at: fromJstInput($('f-open').value),
@@ -394,16 +388,18 @@
     }
 
     $('f-save').disabled = true;
+    // 新規作成ではイベント番号をサーバー側のトリガーが付ける。
+    // select() で作られた行を受け取り、その番号を選択状態にする。
     var q = editingId
-      ? sb.from('events').update(payload).eq('id', editingId)
-      : sb.from('events').insert(payload);
+      ? sb.from('events').update(payload).eq('id', editingId).select().maybeSingle()
+      : sb.from('events').insert(payload).select().maybeSingle();
 
     q.then(function (r) {
       $('f-save').disabled = false;
       if (r.error) { say($('f-msg'), '保存できません: ' + r.error.message, 'bad'); return; }
       say($('f-msg'), '保存しました。', 'ok');
       $('ev-form-card').classList.add('hide');
-      loadEvents(payload.slug);
+      loadEvents(r.data && r.data.event_no);
     });
   });
 
@@ -457,7 +453,7 @@
   // ===================================================================
   function entryUrl(code) {
     return location.origin + location.pathname.replace(/admin\.html$/, '') +
-           '?e=' + encodeURIComponent(CUR.slug) + '&k=' + encodeURIComponent(code);
+           '?e=' + encodeURIComponent(CUR.event_no) + '&k=' + encodeURIComponent(code);
   }
 
   function loadCodes() {
@@ -518,7 +514,7 @@
     if (!btn) return;
 
     if (btn.dataset.cact === 'qr') {
-      window.open('qr.html?e=' + encodeURIComponent(CUR.slug) +
+      window.open('qr.html?e=' + encodeURIComponent(CUR.event_no) +
                   '&k=' + encodeURIComponent(btn.dataset.code), '_blank');
       return;
     }

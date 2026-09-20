@@ -59,6 +59,10 @@ entered ──抽選で当選──> won ──期限までに利用──> rede
 | `07_admin_bootstrap.sql` | 許可リストに載ったメールを自動で管理者にする |
 | `08_store_entry_codes.sql` | 来店者限定の応募（店内掲示 QR コード） |
 | `09_event_numbers.sql` | ユーザー番号とイベント番号の採番 |
+| `10_drop_slug.sql` | slug を廃止し event_no をキーに一本化 |
+
+01〜09 には `slug` を使う記述が残っているが、順番に流す限り問題ない。
+`slug` は `10_drop_slug.sql` の最後で消える。
 
 `04_cron.sql` が `extension "pg_cron" is not available` で落ちる場合は、
 Database > Extensions で `pg_cron` を有効化してから再実行する。
@@ -122,7 +126,7 @@ gh api -X POST repos/t-orz/<リポジトリ名>/pages -f 'source[branch]=main' -
 
 | 画面 | URL |
 | --- | --- |
-| 利用者用 | `https://t-orz.github.io/<リポジトリ名>/?e=<slug>` |
+| 利用者用 | `https://t-orz.github.io/<リポジトリ名>/?e=<イベント番号>` |
 | 運営ログイン | `https://t-orz.github.io/<リポジトリ名>/login.html` |
 | 運営用 | `https://t-orz.github.io/<リポジトリ名>/admin.html` |
 
@@ -142,14 +146,19 @@ Authentication > URL Configuration の **Site URL** に Pages の URL を入れ�
 
 | 項目 | 説明 |
 | --- | --- |
-| slug | 公開URL の `?e=` に入る文字列。作成後は変えられない |
+| イベント名 | 画面に出る名前 |
 | 応募開始 / 応募締切 | この間だけ整理番号を発行する |
 | 第1回抽選 | 応募締切以降であること |
 | 当選枠 | 何人当選させるか |
 | 使用期限（分） | 当選から何分以内に利用する必要があるか。1440 = 24時間 |
 | 抽選の最大回数 | 第1回を含む。3 なら再抽選は2回まで |
 | 整理番号の接頭辞 | `A-` とすると `A-0001` から連番で発行される |
+| 応募できる人 | 誰でも / 来店者限定（店内 QR の読み取りが必要） |
+| QR 読み取り後の有効時間 | 来店者限定のときだけ使う。既定 30分 |
 | 状態 | `draft` は非公開。`open` で稼働。`finished` / `cancelled` で停止 |
+
+イベントを特定するキーは `event_no` で、作成時に自動採番される。
+運営が考えて入力する識別子は無い。
 
 ---
 
@@ -227,7 +236,7 @@ Authentication > URL Configuration の **Site URL** に Pages の URL を入れ�
 ### 流れ
 
 ```
-店内のポスター     ?e=<slug>&k=<秘密コード> を QR にしたもの
+店内のポスター     ?e=<イベント番号>&k=<秘密コード> を QR にしたもの
       │ 読み取る
       ▼
 claim_store_pass()  入店パスを1枚発行（30分有効・1回限り・ID は推測不能な uuid）
@@ -290,8 +299,8 @@ issue_ticket()      有効なパスが無ければ拒否。使うとパスは消
 SQL で中身を確認するときは JST 表示のビューを使う。
 
 ```sql
-select * from public.entries_jst where event_slug = 'autumn-2026' order by ticket_no;
-select * from public.draws_jst   where event_slug = 'autumn-2026' order by round_no;
+select * from public.entries_jst where event_no = '000001-000001-4F2A' order by ticket_no;
+select * from public.draws_jst   where event_no = '000001-000001-4F2A' order by round_no;
 ```
 
 ### pg_cron だけは注意
@@ -343,6 +352,7 @@ supabase/
   07_admin_bootstrap.sql  許可リストによる管理者の自動登録
   08_store_entry_codes.sql 来店者限定の応募（店内掲示 QR）
   09_event_numbers.sql    ユーザー番号・イベント番号の採番
+  10_drop_slug.sql        slug 廃止・event_no への一本化
 ```
 
 画面のつながり:

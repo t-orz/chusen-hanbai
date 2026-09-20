@@ -15,6 +15,6 @@ window.APP_CONFIG = {
   SUPABASE_URL: 'https://kfqlwxmehwzsuhzdtpnc.supabase.co',
   SUPABASE_ANON_KEY: 'sb_publishable_BgFgORq4meC2WjxhTsGwlw_ocZ9VyUd',
 
-  // ?e=slug が URL に無いときに使うイベント
-  DEFAULT_EVENT_SLUG: 'test-2026',
+  // ?e= が URL に無いときに開くイベント番号
+  DEFAULT_EVENT_NO: '',
 };

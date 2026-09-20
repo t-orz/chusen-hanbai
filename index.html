@@ -108,13 +108,23 @@
 
   var CFG  = window.APP_CONFIG;
   var QS   = new URLSearchParams(location.search);
-  var SLUG = QS.get('e') || CFG.DEFAULT_EVENT_SLUG;
+
+  // イベント番号の表記ゆれ（小文字・ハイフン無し）を吸収して
+  // 000001-000001-4F2A の形に揃える。保存キーも揃うようにするため。
+  function normEvNo(s) {
+    var h = String(s || '').replace(/[^0-9A-Fa-f]/g, '');
+    return h.length === 16
+      ? (h.slice(0, 6) + '-' + h.slice(6, 12) + '-' + h.slice(12, 16)).toUpperCase()
+      : String(s || '');
+  }
+
+  var EVNO = normEvNo(QS.get('e') || CFG.DEFAULT_EVENT_NO);
   var CODE = QS.get('k');                    // 店内掲示 QR に埋めた秘密コード
   var sb   = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
 
   var $ = function (id) { return document.getElementById(id); };
 
-  var PASS_KEY = 'chusen:pass:' + SLUG;      // 入店パスの置き場
+  var PASS_KEY = 'chusen:pass:' + EVNO;      // 入店パスの置き場
   var PASS = null;                           // { pass_id, expires_at }
   var DONE = false;                          // この画面で整理番号を受け取り済みか
 
@@ -179,10 +189,10 @@
   var EV = null;
 
   function loadEvent() {
-    return rpc('event_public', { p_slug: SLUG }).then(function (d) {
+    return rpc('event_public', { p_event_no: EVNO }).then(function (d) {
       if (!d || !d.ok) {
         $('ev-name').textContent = 'イベントが見つかりません';
-        $('ev-desc').textContent = '指定されたイベント (' + SLUG + ') は公開されていません。';
+        $('ev-desc').textContent = '指定されたイベント (' + EVNO + ') は公開されていません。';
         return;
       }
       EV = d;
@@ -232,7 +242,7 @@
 
   // --- 入店パス（来店者限定イベント用）--------------------------------
   //
-  // 店内に掲示した QR には ?e=<slug>&k=<秘密コード> が入っている。
+  // 店内に掲示した QR には ?e=<イベント番号>&k=<秘密コード> が入っている。
   // 読み取ると claim_store_pass で1回限りのパスを受け取り、
   // 30分以内にメールを入れて整理番号を取る、という流れ。
   //
@@ -297,7 +307,7 @@
       $('gate-msg').classList.remove('hide');
       $('gate-msg').className = 'msg warn';
       $('gate-msg').textContent = '読み取りを確認しています…';
-      rpc('claim_store_pass', { p_slug: SLUG, p_code: CODE }).then(function (r) {
+      rpc('claim_store_pass', { p_event_no: EVNO, p_code: CODE }).then(function (r) {
         stripCodeFromUrl();
         if (!r || !r.ok) {
           $('gate-msg').className = 'msg bad';
@@ -351,7 +361,9 @@
 
   // --- 抽選履歴 -------------------------------------------------------
   function loadDraws() {
-    sb.from('events').select('id').eq('slug', SLUG).maybeSingle().then(function (r) {
+    // 正規化済みのイベント番号は event_public の戻り値にある
+    if (!EV || !EV.event_no) return;
+    sb.from('events').select('id').eq('event_no', EV.event_no).maybeSingle().then(function (r) {
       if (r.error || !r.data) return;
       return sb.from('draws').select('*').eq('event_id', r.data.id)
                .order('round_no', { ascending: true });
@@ -377,7 +389,7 @@
     say($('entry-msg'), '', null);
 
     rpc('issue_ticket', {
-      p_slug: SLUG, p_email: email,
+      p_event_no: EVNO, p_email: email,
       p_pass_id: PASS ? PASS.pass_id : null
     }).then(function (d) {
       btn.disabled = false;
@@ -404,7 +416,7 @@
       say($('entry-msg'),
           '抽選結果は下の「当落を確認する」から、この番号とメールアドレスでご確認ください。', 'ok');
 
-      try { localStorage.setItem('chusen:' + SLUG, JSON.stringify({ no: d.ticket_no, email: email })); }
+      try { localStorage.setItem('chusen:' + EVNO, JSON.stringify({ no: d.ticket_no, email: email })); }
       catch (err) { /* プライベートモード等では保存できない。動作には支障なし */ }
 
       $('lk-no').value = d.ticket_no;
@@ -421,7 +433,7 @@
     say($('lk-msg'), '', null);
 
     rpc('lookup_ticket', {
-      p_slug: SLUG,
+      p_event_no: EVNO,
       p_ticket_no: $('lk-no').value.trim(),
       p_email: $('lk-email').value.trim()
     }).then(function (d) {
@@ -475,16 +487,16 @@
 
   // --- 起動 -----------------------------------------------------------
   try {
-    var saved = JSON.parse(localStorage.getItem('chusen:' + SLUG) || 'null');
+    var saved = JSON.parse(localStorage.getItem('chusen:' + EVNO) || 'null');
     if (saved) { $('lk-no').value = saved.no; $('lk-email').value = saved.email; }
   } catch (err) { /* 読めなくても構わない */ }
 
-  loadEvent();
-  loadDraws();
+  // 抽選履歴はイベント情報が取れてから引く（正規化済みの番号が要る）
+  loadEvent().then(loadDraws);
 
   // 開催中は1分ごとに概要を更新して、抽選の進行が画面に出るようにする
   setInterval(function () {
-    if (EV && (EV.status === 'open')) { loadEvent(); loadDraws(); }
+    if (EV && (EV.status === 'open')) { loadEvent().then(loadDraws); }
   }, 60000);
 })();
 </script>

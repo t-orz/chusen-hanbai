@@ -83,7 +83,7 @@
   var $    = function (id) { return document.getElementById(id); };
 
   var QS   = new URLSearchParams(location.search);
-  var SLUG = QS.get('e');
+  var EVNO = QS.get('e');
   var CODE = QS.get('k');
 
   function say(text, kind) {
@@ -106,19 +106,19 @@
 
   function entryUrl() {
     return location.origin + location.pathname.replace(/qr\.html$/, '') +
-           '?e=' + encodeURIComponent(SLUG) + '&k=' + encodeURIComponent(CODE);
+           '?e=' + encodeURIComponent(EVNO) + '&k=' + encodeURIComponent(CODE);
   }
 
   function render() {
-    if (!SLUG || !CODE) {
+    if (!EVNO || !CODE) {
       say('URL が不正です。管理画面の「QR を印刷」から開いてください。', 'bad');
       return;
     }
 
     // イベント名と掲示場所のメモを載せる
-    sb.from('events').select('name, pass_window_minutes, event_no').eq('slug', SLUG).maybeSingle()
+    sb.from('events').select('name, pass_window_minutes, event_no').eq('event_no', EVNO).maybeSingle()
       .then(function (r) {
-        var name = (r.data && r.data.name) || SLUG;
+        var name = (r.data && r.data.name) || EVNO;
         var win  = (r.data && r.data.pass_window_minutes) || 30;
         $('p-name').textContent = name;
         $('p-evno').textContent = (r.data && r.data.event_no) ? 'イベント番号 ' + r.data.event_no : '';

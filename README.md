@@ -67,17 +67,24 @@ Database > Extensions で `pg_cron` を有効化してから再実行する。
 
 `admin_users` に行が入っていないアカウントは管理画面に入れない。
 
-### 3. anon キーを入れる
+### 3. 公開キー（設定済み）
 
-[Settings > API](https://supabase.com/dashboard/project/kfqlwxmehwzsuhzdtpnc/settings/api)
-の **anon / public** をコピーし、`config.js` に貼る。
+`config.js` には publishable key（旧 anon キーの後継）を入れてある。
 
 ```js
-SUPABASE_ANON_KEY: 'eyJhbGci...',
+SUPABASE_ANON_KEY: 'sb_publishable_...',
 ```
 
-anon キーはブラウザに配る前提のもので、公開リポジトリに入れて構わない。
-**`service_role` キーは絶対にここへ書かない。**
+ブラウザに配る前提のキーなので、公開リポジトリに入れて構わない。
+守りは Supabase 側の RLS と RPC 権限が担っている。
+**secret key / service_role キーは絶対にここへ書かない。**
+
+差し替えが必要になったら
+[Settings > API Keys](https://supabase.com/dashboard/project/kfqlwxmehwzsuhzdtpnc/settings/api-keys)
+の「Publishable and secret API keys」タブから取る。
+
+同じ画面の「Legacy anon, service_role API keys」タブに旧 anon キーも残っているが、
+Supabase は publishable key の利用を推奨しており、旧キーは将来無効化できる扱いになっている。
 
 ### 4. 動作を確認する
 

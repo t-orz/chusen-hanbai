@@ -87,6 +87,14 @@
     </div>
   </div>
 
+  <!-- ===== 注意事項・問い合わせ ===== -->
+  <div class="card hide" id="terms-card">
+    <h2>ご注意</h2>
+    <ul class="sub" id="terms-list" style="margin:0;padding-left:1.2em;line-height:1.9"></ul>
+    <p class="sub" id="terms-privacy" style="margin:14px 0 0"></p>
+    <p class="sub" id="terms-contact" style="margin:6px 0 0"></p>
+  </div>
+
   <!-- ===== 抽選履歴 ===== -->
   <div class="card hide" id="draws-card">
     <h2>抽選の記録</h2>
@@ -213,8 +221,40 @@
       $('ev-rounds').textContent = '最大 ' + d.max_rounds + ' 回（実施済み ' + d.rounds_done + ' 回）'
         + ' / 期限までに利用されなかった枠は次点の方へ再抽選します';
 
+      renderTerms(d);
       showPhase(d);
     });
+  }
+
+  // 掲示物と同じ条件をページにも出す。
+  // 紙を読まずに QR だけ読んだ人にも伝わるようにするため。
+  function renderTerms(d) {
+    var items = [
+      '当選のご連絡はいたしません。このページの「当落を確認する」から各自ご確認ください。',
+      '確認には整理番号とメールアドレスの両方が必要です。整理番号は必ず控えてください。',
+      '当選された方は、当選から ' + dur(d.claim_window_minutes) + '以内にお手続きください。',
+      '期限を過ぎた当選は無効となり、空いた枠は落選された方の中から改めて抽選します' +
+        '（抽選は最大 ' + d.max_rounds + ' 回）。',
+      'メールアドレス1つにつき整理番号は1つです。'
+    ];
+    if (d.require_entry_code) {
+      items.unshift('本抽選は、店頭に掲示された QR コードからのみご応募いただけます。');
+    }
+    (d.notice || '').split('\n').forEach(function (line) {
+      if (line.trim()) items.push(line.trim());
+    });
+
+    $('terms-list').innerHTML = items.map(function (s) {
+      var li = document.createElement('li');
+      li.textContent = s;
+      return li.outerHTML;
+    }).join('');
+
+    $('terms-privacy').textContent = d.privacy_note
+      ? '【個人情報の取り扱い】' + d.privacy_note : '';
+    $('terms-contact').textContent = d.contact_info
+      ? '【お問い合わせ】' + (d.organizer ? d.organizer + '　' : '') + d.contact_info : '';
+    $('terms-card').classList.remove('hide');
   }
 
   function showPhase(d) {

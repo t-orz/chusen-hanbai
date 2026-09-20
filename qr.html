@@ -4,72 +4,158 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>掲示用 QR</title>
+<title>掲示用ポスター</title>
 <link rel="stylesheet" href="style.css">
 <style>
-  /* 掲示物そのもの。A4 縦に1枚で収まるサイズに寄せてある */
-  .poster {
+  /* --------------------------------------------------------------
+     A4 縦1枚の掲示物。画面表示と印刷で同じ見た目になるようにしてある。
+     PDF はブラウザの「印刷 → PDF として保存」で作る。
+     文字も QR もベクターのまま PDF に入るので、拡大しても潰れない。
+     -------------------------------------------------------------- */
+  @page { size: A4 portrait; margin: 12mm; }
+
+  .sheet {
     background: #fff;
     color: #111;
+    width: 186mm;            /* A4 幅 210mm - 余白 12mm x2 */
+    min-height: 273mm;
+    margin: 0 auto;
+    padding: 0;
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    padding: 32px 28px 28px;
-    text-align: center;
-    max-width: 520px;
-    margin: 0 auto;
+    box-sizing: border-box;
   }
-  .poster .ev   { font-size: 1.5rem; font-weight: 700; margin: 0 0 4px; }
-  .poster .lead { font-size: .95rem; color: #444; margin: 0 0 22px; }
-  .poster .qr   { display: flex; justify-content: center; margin: 0 0 20px; }
-  .poster .qr svg { width: 300px; height: 300px; display: block; }
-  .poster .steps {
-    text-align: left;
-    display: inline-block;
-    font-size: .92rem;
-    line-height: 1.9;
-    color: #222;
-    margin: 0;
-    padding-left: 1.2em;
-  }
-  .poster .note { font-size: .78rem; color: #666; margin: 18px 0 0; }
-  .poster .label { font-size: .72rem; color: #999; margin: 14px 0 0; }
+  .sheet-inner { padding: 10mm 11mm; }
 
-  .toolbar { max-width: 520px; margin: 0 auto 18px; }
+  .p-org    { font-size: 10pt; color: #555; margin: 0 0 2mm; }
+  .p-name   { font-size: 21pt; font-weight: 700; line-height: 1.3; margin: 0 0 2mm; }
+  .p-desc   { font-size: 10.5pt; color: #333; line-height: 1.6; margin: 0 0 6mm;
+              white-space: pre-wrap; }
+
+  .p-sec    { margin: 0 0 5mm; }
+  .p-h      { font-size: 11pt; font-weight: 700; color: #111;
+              border-left: 3px solid #111; padding-left: 3mm; margin: 0 0 3mm; }
+  .p-h.warn { border-left-color: #b8860b; }
+
+  .apply    { display: flex; gap: 7mm; align-items: flex-start; }
+  .apply .qr svg { width: 46mm; height: 46mm; display: block; }
+  .apply ol { margin: 0; padding-left: 5mm; font-size: 11pt; line-height: 2; }
+
+  .verify   { display: flex; gap: 6mm; align-items: flex-start;
+              background: #fbf6e8; border: 1px solid #e3d5ac;
+              border-radius: 2mm; padding: 4mm 5mm; }
+  .verify .qr svg { width: 27mm; height: 27mm; display: block; }
+  .verify .cap { font-size: 8pt; color: #6b5a2a; text-align: center; margin: 1.5mm 0 0; }
+  .verify .body { font-size: 10pt; line-height: 1.7; color: #3d3316; }
+  .verify strong { font-size: 11pt; }
+
+  table.p-tbl { width: 100%; border-collapse: collapse; font-size: 10.5pt; }
+  table.p-tbl th, table.p-tbl td {
+    border-bottom: 1px solid #ddd; padding: 2mm 2mm; text-align: left; vertical-align: top;
+  }
+  table.p-tbl th { width: 30mm; color: #555; font-weight: 600; white-space: nowrap; }
+
+  .p-list { margin: 0; padding-left: 5mm; font-size: 9.5pt; line-height: 1.85; color: #333; }
+  .p-fine { font-size: 8.5pt; color: #666; line-height: 1.7; margin: 0;
+            white-space: pre-wrap; }
+  .p-foot { display: flex; justify-content: space-between; gap: 4mm;
+            border-top: 1px solid #ddd; margin-top: 6mm; padding-top: 3mm;
+            font-size: 8pt; color: #999; }
+  .p-foot .no { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .toolbar { max-width: 186mm; margin: 0 auto 6mm; }
 
   @media print {
-    body { background: #fff; padding: 0; }
+    body { background: #fff; padding: 0; margin: 0; }
     .toolbar, .noprint { display: none !important; }
-    .poster { border: 0; max-width: none; padding: 0; }
-    .poster .qr svg { width: 340px; height: 340px; }
+    .sheet { border: 0; border-radius: 0; width: auto; min-height: 0; }
+    .sheet-inner { padding: 0; }
   }
 </style>
 </head>
 <body>
 
 <div class="toolbar noprint">
-  <div class="nav">
-    <a href="admin.html">管理画面に戻る</a>
-  </div>
+  <div class="nav"><a href="admin.html">管理画面に戻る</a></div>
   <div class="row">
-    <button id="print-btn">印刷する</button>
-    <button class="ghost" id="copy-btn">URL をコピー</button>
+    <button id="print-btn">PDF として保存 / 印刷</button>
+    <button class="ghost" id="copy-btn">応募用 URL をコピー</button>
   </div>
+  <p class="sub" style="margin:8px 0 0">
+    印刷ダイアログの送信先で「PDF に保存」を選ぶと PDF になります。
+    用紙 A4・余白なし・背景グラフィックを有効にしてください。
+  </p>
   <div class="msg" id="msg"></div>
 </div>
 
-<div class="poster hide" id="poster">
-  <p class="ev" id="p-name"></p>
-  <p class="lead">抽選販売 応募受付</p>
-  <div class="qr" id="p-qr"></div>
-  <ol class="steps">
-    <li>スマートフォンのカメラで QR コードを読み取る</li>
-    <li>表示されたページでメールアドレスを入力</li>
-    <li>整理番号が発行されます</li>
-  </ol>
-  <p class="note" id="p-note"></p>
-  <p class="label" id="p-label"></p>
-  <p class="label" id="p-evno" style="font-family:ui-monospace,Menlo,monospace"></p>
-</div>
+<div class="sheet hide" id="sheet"><div class="sheet-inner">
+
+  <p class="p-org" id="p-org"></p>
+  <p class="p-name" id="p-name"></p>
+  <p class="p-desc" id="p-desc"></p>
+
+  <!-- 応募方法 -->
+  <div class="p-sec">
+    <p class="p-h">応募方法</p>
+    <div class="apply">
+      <div class="qr" id="p-qr-apply"></div>
+      <ol>
+        <li>スマートフォンのカメラでこの QR コードを読み取る</li>
+        <li>表示されたページでメールアドレスを入力する</li>
+        <li>整理番号が発行されます</li>
+      </ol>
+    </div>
+    <p class="p-list" id="p-apply-note" style="margin-top:3mm"></p>
+  </div>
+
+  <!-- 日程 -->
+  <div class="p-sec">
+    <p class="p-h">日程</p>
+    <table class="p-tbl"><tbody>
+      <tr><th>応募受付</th><td id="p-entry"></td></tr>
+      <tr><th>抽選</th><td id="p-draw"></td></tr>
+      <tr><th>当選数</th><td id="p-winners"></td></tr>
+    </tbody></table>
+  </div>
+
+  <!-- 当選の確認 -->
+  <div class="p-sec">
+    <p class="p-h warn">当選の確認方法</p>
+    <div class="verify">
+      <div>
+        <div class="qr" id="p-qr-verify"></div>
+        <p class="cap">確認用<br>撮影推奨</p>
+      </div>
+      <div class="body">
+        <strong>当選のご連絡はいたしません。</strong><br>
+        <span id="p-verify-when"></span>この QR コードから各自ご確認ください。<br>
+        確認には<strong>整理番号とメールアドレスの両方</strong>が必要です。
+        発行された整理番号は必ず控えてください。
+      </div>
+    </div>
+  </div>
+
+  <!-- 当選後の手続き -->
+  <div class="p-sec">
+    <p class="p-h">当選後のお手続き</p>
+    <ul class="p-list" id="p-after"></ul>
+  </div>
+
+  <!-- 注意事項 -->
+  <div class="p-sec">
+    <p class="p-h">ご注意</p>
+    <ul class="p-list" id="p-notes"></ul>
+  </div>
+
+  <p class="p-fine" id="p-privacy"></p>
+  <p class="p-fine" id="p-contact" style="margin-top:2mm"></p>
+
+  <div class="p-foot">
+    <span id="p-label"></span>
+    <span class="no" id="p-evno"></span>
+  </div>
+
+</div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
@@ -91,6 +177,32 @@
     $('msg').className = 'msg' + (text ? ' ' + (kind || 'warn') : '');
   }
 
+  function fmt(ts) {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleString('ja-JP', {
+      timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  function dur(minutes) {
+    if (minutes % 1440 === 0) return (minutes / 1440) + '日';
+    if (minutes % 60 === 0)   return (minutes / 60) + '時間';
+    return minutes + '分';
+  }
+
+  var base = location.origin + location.pathname.replace(/qr\.html$/, '');
+  function applyUrl()  { return base + '?e=' + encodeURIComponent(EVNO) +
+                                '&k=' + encodeURIComponent(CODE); }
+  function verifyUrl() { return base + '?e=' + encodeURIComponent(EVNO); }
+
+  function drawQr(elId, url, cell) {
+    var qr = qrcode(0, 'M');          // 誤り訂正レベル M。印刷物なら十分
+    qr.addData(url);
+    qr.make();
+    $(elId).innerHTML = qr.createSvgTag({ cellSize: cell, margin: 1, scalable: true });
+  }
+
   // 掲示コードは秘密なので、このページも管理者しか開けないようにする
   sb.auth.getSession().then(function (r) {
     var s = r.data && r.data.session;
@@ -104,47 +216,94 @@
       });
   });
 
-  function entryUrl() {
-    return location.origin + location.pathname.replace(/qr\.html$/, '') +
-           '?e=' + encodeURIComponent(EVNO) + '&k=' + encodeURIComponent(CODE);
-  }
-
   function render() {
     if (!EVNO || !CODE) {
-      say('URL が不正です。管理画面の「QR を印刷」から開いてください。', 'bad');
+      say('URL が不正です。管理画面の「掲示用 PDF」から開いてください。', 'bad');
       return;
     }
 
-    // イベント名と掲示場所のメモを載せる
-    sb.from('events').select('name, pass_window_minutes, event_no').eq('event_no', EVNO).maybeSingle()
-      .then(function (r) {
-        var name = (r.data && r.data.name) || EVNO;
-        var win  = (r.data && r.data.pass_window_minutes) || 30;
-        $('p-name').textContent = name;
-        $('p-evno').textContent = (r.data && r.data.event_no) ? 'イベント番号 ' + r.data.event_no : '';
-        $('p-note').textContent =
-          '読み取りから ' + win + '分以内に応募を完了してください。' +
-          'このQRコードはご来店の確認を兼ねています。';
-        return sb.from('entry_codes').select('label').eq('code', CODE).maybeSingle();
-      })
-      .then(function (r) {
-        var label = r && r.data && r.data.label;
-        $('p-label').textContent = label ? '掲示場所: ' + label : '';
+    sb.rpc('event_public', { p_event_no: EVNO }).then(function (r) {
+      var d = r.data;
+      if (!d || !d.ok) { say('イベントが見つかりません。', 'bad'); return; }
 
-        var qr = qrcode(0, 'M');           // 誤り訂正レベル M。印刷物なら十分
-        qr.addData(entryUrl());
-        qr.make();
-        $('p-qr').innerHTML = qr.createSvgTag({ cellSize: 8, margin: 2, scalable: true });
-        $('poster').classList.remove('hide');
-      });
+      $('p-org').textContent  = d.organizer || '';
+      $('p-name').textContent = d.name;
+      $('p-desc').textContent = d.description || '';
+      $('p-evno').textContent = 'イベント番号 ' + d.event_no;
+
+      drawQr('p-qr-apply',  applyUrl(),  8);
+      drawQr('p-qr-verify', verifyUrl(), 5);
+
+      // --- 応募方法の但し書き ---
+      var an = [];
+      if (d.require_entry_code) {
+        an.push('※ この QR コードの読み取りから ' + d.pass_window_minutes +
+                '分以内に応募を完了してください。時間を過ぎた場合はもう一度読み取ってください。');
+      }
+      an.push('※ メールアドレス1つにつき整理番号は1つです。');
+      $('p-apply-note').textContent = an.join('\n');
+
+      // --- 日程 ---
+      $('p-entry').textContent   = fmt(d.entry_open_at) + ' 〜 ' + fmt(d.entry_close_at);
+      $('p-draw').textContent    = fmt(d.first_draw_at);
+      $('p-winners').textContent = d.winners_count + ' 名';
+
+      $('p-verify-when').textContent = '抽選後、' ;
+
+      // --- 当選後の手続き ---
+      var pre = d.ticket_prefix || '';
+      $('p-after').innerHTML = [
+        '当選された方は、<strong>当選から ' + dur(d.claim_window_minutes) +
+          '以内</strong>にお手続きください。',
+        '期限を過ぎた当選は<strong>無効</strong>となり、権利は失われます。',
+        '無効となって空いた枠は、落選された方の中から改めて抽選（次点抽選）を行います。' +
+          '抽選は最大 ' + d.max_rounds + ' 回まで行われるため、' +
+          '第1回で落選された方にも当選の可能性が残ります。',
+        '次点抽選で当選した場合も連絡はありません。' +
+          '抽選が終了するまで、確認用 QR から定期的にご確認ください。'
+      ].map(function (s) { return '<li>' + s + '</li>'; }).join('');
+
+      // --- ご注意 ---
+      var notes = [];
+      if (d.require_entry_code) {
+        notes.push('本抽選は、店頭に掲示されたこの QR コードからのみご応募いただけます。');
+      }
+      notes.push('整理番号は発行後に再確認できません。必ず控えてください。');
+      notes.push('通信料はお客様のご負担となります。');
+      if (d.notice) {
+        d.notice.split('\n').forEach(function (line) {
+          if (line.trim()) notes.push(line.trim());
+        });
+      }
+      $('p-notes').innerHTML = notes.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('');
+
+      $('p-privacy').textContent = d.privacy_note
+        ? '【個人情報の取り扱い】' + d.privacy_note : '';
+      $('p-contact').textContent = d.contact_info
+        ? '【お問い合わせ】' + d.contact_info : '';
+
+      return sb.from('entry_codes').select('label').eq('code', CODE).maybeSingle();
+    }).then(function (r) {
+      if (!r) return;
+      var label = r.data && r.data.label;
+      $('p-label').textContent = label ? '掲示場所: ' + label : '';
+      $('sheet').classList.remove('hide');
+    });
+  }
+
+  // 注意事項は運営が自由に書くので、HTML として解釈させない
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
   }
 
   $('print-btn').addEventListener('click', function () { window.print(); });
 
   $('copy-btn').addEventListener('click', function () {
-    navigator.clipboard.writeText(entryUrl())
-      .then(function () { say('URL をコピーしました。', 'ok'); })
-      .catch(function () { say('コピーできませんでした。URL: ' + entryUrl(), 'warn'); });
+    navigator.clipboard.writeText(applyUrl())
+      .then(function () { say('応募用 URL をコピーしました。', 'ok'); })
+      .catch(function () { say('コピーできませんでした。', 'warn'); });
   });
 })();
 </script>

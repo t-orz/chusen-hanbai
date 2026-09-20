@@ -55,6 +55,7 @@ entered ──抽選で当選──> won ──期限までに利用──> rede
 | `03_rls_grants.sql` | RLS と実行権限 |
 | `04_cron.sql` | 毎分の自動処理を登録 |
 | `05_admin_and_sample.sql` | 管理者登録とテスト用イベント（中身を書き換えてから） |
+| `06_timezone_jst.sql` | 日本時間で読み書きするための設定と確認用ビュー |
 
 `04_cron.sql` が `extension "pg_cron" is not available` で落ちる場合は、
 Database > Extensions で `pg_cron` を有効化してから再実行する。
@@ -163,6 +164,41 @@ Authentication > URL Configuration の **Site URL** に Pages の URL を入れ�
 
 抽選は「指定時刻ちょうど」ではなく「指定時刻を過ぎた最初の tick」で走る。
 毎分の cron なので、実際の実行は指定時刻から最大1分遅れる。
+
+---
+
+## 時刻の扱い
+
+**このアプリの日時はすべて日本時間（JST）で考える。**
+
+保存は `timestamptz`（絶対時刻）なので、内部的には UTC で持っている。
+そのうえで、人が見る側と書く側を JST に固定している。
+
+| 場所 | どうしているか |
+| --- | --- |
+| DB の保存値 | `timestamptz`。絶対時刻なので比較は常に正しい |
+| SQL Editor | `06_timezone_jst.sql` で `Asia/Tokyo` を既定にしている |
+| REST API の戻り値 | 同ファイルで `authenticator` ロールも JST にしてある（`+09:00` 付きで返る） |
+| 画面の表示 | `toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })` で JST 固定 |
+| 管理画面の日時入力 | `+09:00` を明示して JST として解釈する |
+
+日時入力を端末のタイムゾーンに任せていない点が要点。
+海外から開いたり PC の時計設定がずれていたりしても、
+入力した「10:00」は常に JST の 10:00 になる。
+
+SQL で中身を確認するときは JST 表示のビューを使う。
+
+```sql
+select * from public.entries_jst where event_slug = 'autumn-2026' order by ticket_no;
+select * from public.draws_jst   where event_slug = 'autumn-2026' order by round_no;
+```
+
+### pg_cron だけは注意
+
+`cron.schedule` の時刻指定は **UTC で解釈される**。
+今の設定は `'* * * * *'`（毎分）なのでタイムゾーンの影響を受けないが、
+`'0 12 * * *'` のような時刻指定に変える場合は JST から9時間引くこと
+（JST 12:00 なら `'0 3 * * *'`）。
 
 ---
 

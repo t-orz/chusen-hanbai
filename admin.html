@@ -18,6 +18,9 @@
   </div>
 
   <div class="sub" id="gate">認証を確認しています…</div>
+  <div class="sub hide" id="tzinfo" style="margin:-10px 0 18px">
+    画面内の日時はすべて日本時間（JST）です。
+  </div>
 
   <div id="app" class="hide">
 
@@ -46,12 +49,16 @@
         </div>
         <label for="f-desc">説明</label>
         <textarea id="f-desc" rows="2"></textarea>
+        <p class="sub" style="margin:14px 0 0">
+          日時はすべて<strong>日本時間（JST）</strong>で入力・表示されます。
+          この端末のタイムゾーン設定には影響されません。
+        </p>
         <div class="grid2">
-          <div><label for="f-open">応募開始</label>
+          <div><label for="f-open">応募開始（JST）</label>
                <input type="datetime-local" id="f-open" required></div>
-          <div><label for="f-close">応募締切</label>
+          <div><label for="f-close">応募締切（JST）</label>
                <input type="datetime-local" id="f-close" required></div>
-          <div><label for="f-draw">第1回抽選</label>
+          <div><label for="f-draw">第1回抽選（JST）</label>
                <input type="datetime-local" id="f-draw" required></div>
           <div><label for="f-prefix">整理番号の接頭辞</label>
                <input type="text" id="f-prefix" placeholder="A-"></div>
@@ -156,6 +163,9 @@
   var EVENTS = [];
   var CUR = null;   // 選択中のイベント行
 
+  // 表示はすべて日本時間に固定する。閲覧者の端末のタイムゾーンには従わない。
+  var JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
   function fmt(ts) {
     if (!ts) return '—';
     return new Date(ts).toLocaleString('ja-JP', {
@@ -169,15 +179,21 @@
     el.className = 'msg' + (text ? ' ' + (kind || 'warn') : '');
   }
 
-  // datetime-local <-> ISO。ブラウザのタイムゾーンでそのまま扱う。
-  function toLocalInput(iso) {
+  // datetime-local <-> ISO。入力欄の値は「日本時間」として読み書きする。
+  // 端末のタイムゾーンを使うと、海外や設定ずれの PC から開いたときに
+  // 抽選時刻が数時間ずれるので、+09:00 を明示して固定する。
+  function toJstInput(iso) {
     if (!iso) return '';
-    var d = new Date(iso);
+    var d = new Date(new Date(iso).getTime() + JST_OFFSET_MS);
     var pad = function (n) { return String(n).padStart(2, '0'); };
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
-           'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) +
+           'T' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
   }
-  function fromLocalInput(v) { return v ? new Date(v).toISOString() : null; }
+  function fromJstInput(v) {
+    if (!v) return null;
+    var s = v.length === 16 ? v + ':00' : v;   // 'YYYY-MM-DDTHH:mm' に秒を補う
+    return new Date(s + '+09:00').toISOString();
+  }
 
   // ===================================================================
   // 認証ゲート
@@ -201,6 +217,7 @@
           return sb.auth.signOut().then(function () { bounce('notadmin'); });
         }
         $('gate').classList.add('hide');
+        $('tzinfo').classList.remove('hide');
         $('app').classList.remove('hide');
         $('whoami').textContent = user.email;
         loadEvents();
@@ -275,9 +292,9 @@
     $('f-slug').disabled = !!ev;                 // slug は公開URLなので後から変えない
     $('f-name').value    = ev ? ev.name : '';
     $('f-desc').value    = ev ? ev.description : '';
-    $('f-open').value    = ev ? toLocalInput(ev.entry_open_at) : '';
-    $('f-close').value   = ev ? toLocalInput(ev.entry_close_at) : '';
-    $('f-draw').value    = ev ? toLocalInput(ev.first_draw_at) : '';
+    $('f-open').value    = ev ? toJstInput(ev.entry_open_at) : '';
+    $('f-close').value   = ev ? toJstInput(ev.entry_close_at) : '';
+    $('f-draw').value    = ev ? toJstInput(ev.first_draw_at) : '';
     $('f-prefix').value  = ev ? ev.ticket_prefix : 'A-';
     $('f-winners').value = ev ? ev.winners_count : 10;
     $('f-claim').value   = ev ? ev.claim_window_minutes : 1440;
@@ -298,9 +315,9 @@
       slug: $('f-slug').value.trim(),
       name: $('f-name').value.trim(),
       description: $('f-desc').value,
-      entry_open_at: fromLocalInput($('f-open').value),
-      entry_close_at: fromLocalInput($('f-close').value),
-      first_draw_at: fromLocalInput($('f-draw').value),
+      entry_open_at: fromJstInput($('f-open').value),
+      entry_close_at: fromJstInput($('f-close').value),
+      first_draw_at: fromJstInput($('f-draw').value),
       ticket_prefix: $('f-prefix').value,
       winners_count: parseInt($('f-winners').value, 10),
       claim_window_minutes: parseInt($('f-claim').value, 10),
